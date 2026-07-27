@@ -1,0 +1,65 @@
+{
+  "_comment": [
+    "กฎสถาปัตยกรรมของโปรเจกต์นี้ — บังคับด้วย `go run ./cmd/archlint`",
+    "แนวคิด: กฎ Clean Architecture ทุกข้อตรวจได้จาก import graph ซึ่งเป็น static ล้วน",
+    "จึงไม่ควรเป็นแค่ 'ข้อตกลงในหัวคน' แต่ควรเป็นสิ่งที่ทำให้ build แดง",
+    "",
+    "layer: domain = แกนธุรกิจ · adapter = ต่อโลกภายนอก · composition = จุดประกอบร่าง"
+  ],
+
+  "module": "github.com/soya196/go-shop",
+
+  "layers": {
+    "domain": [
+      "internal/money",
+      "internal/catalog",
+      "internal/customer",
+      "internal/cart",
+      "internal/order",
+      "internal/payment",
+      "internal/checkout"
+    ],
+    "adapter": [
+      "internal/memory",
+      "internal/jsonstore",
+      "internal/httpapi",
+      "internal/bridge",
+      "internal/clock",
+      "internal/uid",
+      "internal/fakepay"
+    ],
+    "composition": [
+      "cmd/api",
+      "cmd/archlint"
+    ]
+  },
+
+  "rules": {
+    "domainMustNotImportLayers": ["adapter", "composition"],
+
+    "domainMustNotImportThirdParty": true,
+
+    "domainStdlibDenyList": [
+      "net/http",
+      "net/rpc",
+      "database/sql",
+      "os",
+      "os/exec",
+      "log",
+      "log/slog",
+      "html/template"
+    ],
+
+    "sharedKernel": ["internal/money"],
+
+    "allowedCrossDomain": [],
+
+    "bannedPackageNames": [
+      "util", "utils", "common", "helper", "helpers",
+      "model", "models", "domain", "service", "services",
+      "port", "ports", "entity", "entities", "base", "misc", "shared"
+    ],
+
+    "adapterMustNotImportLayers": ["composition"]
+  }
+}

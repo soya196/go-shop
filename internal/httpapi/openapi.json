@@ -1,0 +1,513 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "go-shop API",
+    "version": "1.0.0",
+    "description": "Shopping API ที่สร้างตามแนวคิด Clean Architecture (Go)\n\n**สถานะออเดอร์เดินตามนี้เท่านั้น** — ข้ามขั้นจะได้ `409`\n\n```\nPLACED ──pay──► PAID ──prepare──► PREPARING ──ship──► SHIPPED ──deliver──► DELIVERED\n   │             │                    │\n   └──cancel─────┴────────────────────┘   (หลัง SHIPPED ยกเลิกไม่ได้)\n```\n\n**เรื่องเงิน**: ทุกจำนวนเงินส่งกลับเป็น object `{satang, text}` — เก็บเป็นสตางค์ (int64) กัน float rounding\n\n**flow ปกติ**: สมัครลูกค้า → เปิดตะกร้า → หยิบของ → checkout → เดินสถานะ"
+  },
+  "servers": [
+    { "url": "/", "description": "เซิร์ฟเวอร์ปัจจุบัน" }
+  ],
+  "tags": [
+    { "name": "health", "description": "liveness / readiness" },
+    { "name": "catalog", "description": "สินค้าและสต็อก" },
+    { "name": "customer", "description": "ลูกค้า" },
+    { "name": "cart", "description": "ตะกร้าสินค้า" },
+    { "name": "checkout", "description": "เปลี่ยนตะกร้าเป็นออเดอร์" },
+    { "name": "order", "description": "คำสั่งซื้อและการเดินสถานะ" },
+    { "name": "payment", "description": "การชำระเงิน" }
+  ],
+
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": ["health"],
+        "summary": "liveness — โปรเซสยังอยู่ไหม",
+        "description": "ไม่เช็ค dependency โดยตั้งใจ — DB ล่มชั่วคราวไม่ควรทำให้ k8s ฆ่า pod ทิ้ง",
+        "responses": {
+          "200": {
+            "description": "ยังมีชีวิต",
+            "content": { "application/json": { "schema": {
+              "type": "object", "properties": { "status": { "type": "string", "example": "ok" } } } } }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": ["health"],
+        "summary": "readiness — พร้อมรับ traffic ไหม",
+        "responses": {
+          "200": { "description": "พร้อม", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": { "status": { "type": "string", "example": "ready" }, "version": { "type": "string" } } } } } },
+          "503": { "description": "กำลังปิดตัว — load balancer ควรถอดออกจาก pool" }
+        }
+      }
+    },
+
+    "/products": {
+      "get": {
+        "tags": ["catalog"],
+        "summary": "ดูสินค้าที่ขายอยู่",
+        "parameters": [
+          { "name": "all", "in": "query", "schema": { "type": "string", "enum": ["true"] },
+            "description": "ใส่ `true` เพื่อรวมสินค้าที่ปิดขายแล้ว (สำหรับหลังร้าน)" }
+        ],
+        "responses": {
+          "200": { "description": "รายการสินค้า", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": { "products": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } } } } } } }
+        }
+      },
+      "post": {
+        "tags": ["catalog"],
+        "summary": "เพิ่มสินค้า",
+        "description": "ระบุราคาด้วย `price_thb` (สตริง เช่น `\"85.00\"` — แปลงแบบไม่ผ่าน float) หรือ `satang` (จำนวนเต็ม) อย่างใดอย่างหนึ่ง",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProductRequest" },
+            "examples": {
+              "ราคาเป็นบาท": { "value": { "sku": "COF-LAT", "name": "Latte เย็น", "price_thb": "85.00", "stock": 40 } },
+              "ราคาเป็นสตางค์": { "value": { "sku": "COF-MOC", "name": "Mocha ร้อน", "satang": 9500, "stock": 25 } }
+            } } }
+        },
+        "responses": {
+          "201": { "description": "สร้างแล้ว", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "409": { "description": "SKU ซ้ำ", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/products/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/ProductID" } ],
+      "get": {
+        "tags": ["catalog"],
+        "summary": "ดูสินค้ารายตัว",
+        "responses": {
+          "200": { "description": "พบสินค้า", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["catalog"],
+        "summary": "ปิดการขายสินค้า",
+        "description": "ไม่ได้ลบทิ้ง — แค่ตั้ง `active=false` ประวัติออเดอร์เก่ายังอ้างถึงได้",
+        "responses": {
+          "204": { "description": "ปิดการขายแล้ว" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/products/{id}/restock": {
+      "parameters": [ { "$ref": "#/components/parameters/ProductID" } ],
+      "post": {
+        "tags": ["catalog"],
+        "summary": "เติมสต็อก",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["qty"],
+          "properties": { "qty": { "type": "integer", "minimum": 1, "example": 20 } } } } } },
+        "responses": {
+          "200": { "description": "สต็อกใหม่", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+
+    "/customers": {
+      "get": {
+        "tags": ["customer"],
+        "summary": "รายชื่อลูกค้า",
+        "responses": { "200": { "description": "รายชื่อ", "content": { "application/json": { "schema": {
+          "type": "object",
+          "properties": { "customers": { "type": "array", "items": { "$ref": "#/components/schemas/Customer" } } } } } } } }
+      },
+      "post": {
+        "tags": ["customer"],
+        "summary": "สมัครลูกค้าใหม่",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["name", "email"],
+          "properties": {
+            "name": { "type": "string", "example": "สนธยา" },
+            "email": { "type": "string", "format": "email", "example": "sonthaya@example.com" }
+          } } } } },
+        "responses": {
+          "201": { "description": "สมัครแล้ว", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Customer" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "409": { "description": "อีเมลซ้ำ (ไม่สนตัวพิมพ์เล็กใหญ่)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/customers/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/CustomerID" } ],
+      "get": {
+        "tags": ["customer"],
+        "summary": "ดูลูกค้ารายตัว",
+        "responses": {
+          "200": { "description": "พบลูกค้า", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Customer" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/customers/{id}/orders": {
+      "parameters": [ { "$ref": "#/components/parameters/CustomerID" } ],
+      "get": {
+        "tags": ["customer"],
+        "summary": "ออเดอร์ของลูกค้า",
+        "responses": { "200": { "$ref": "#/components/responses/OrderList" } }
+      }
+    },
+
+    "/carts": {
+      "post": {
+        "tags": ["cart"],
+        "summary": "เปิดตะกร้าให้ลูกค้า",
+        "description": "idempotent — ถ้าลูกค้ามีตะกร้าค้างอยู่แล้วจะคืนใบเดิม ไม่สร้างใหม่",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["customer_id"],
+          "properties": { "customer_id": { "type": "string", "example": "cus_0001" } } } } } },
+        "responses": {
+          "201": { "description": "ตะกร้า", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Cart" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/carts/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/CartID" } ],
+      "get": {
+        "tags": ["cart"],
+        "summary": "ดูตะกร้า",
+        "responses": {
+          "200": { "description": "ตะกร้า", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Cart" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/carts/{id}/items": {
+      "parameters": [ { "$ref": "#/components/parameters/CartID" } ],
+      "post": {
+        "tags": ["cart"],
+        "summary": "หยิบสินค้าใส่ตะกร้า",
+        "description": "ถ้ามีสินค้านั้นในตะกร้าอยู่แล้วจะบวกจำนวนเพิ่ม · ราคาที่บันทึกคือราคา ณ ตอนหยิบ",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["product_id", "qty"],
+          "properties": {
+            "product_id": { "type": "string", "example": "prd_0001" },
+            "qty": { "type": "integer", "minimum": 1, "example": 2 }
+          } } } } },
+        "responses": {
+          "200": { "description": "ตะกร้าหลังหยิบ", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Cart" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "description": "สินค้าปิดขายอยู่", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/carts/{id}/items/{productID}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/CartID" },
+        { "name": "productID", "in": "path", "required": true, "schema": { "type": "string" }, "description": "รหัสสินค้าในตะกร้า" }
+      ],
+      "patch": {
+        "tags": ["cart"],
+        "summary": "ปรับจำนวน (0 = เอาออก)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["qty"],
+          "properties": { "qty": { "type": "integer", "minimum": 0, "example": 3 } } } } } },
+        "responses": {
+          "200": { "description": "ตะกร้าหลังปรับ", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Cart" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["cart"],
+        "summary": "เอาสินค้าออกจากตะกร้า",
+        "responses": {
+          "200": { "description": "ตะกร้าหลังเอาออก", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Cart" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+
+    "/carts/{id}/checkout": {
+      "parameters": [ { "$ref": "#/components/parameters/CartID" } ],
+      "post": {
+        "tags": ["checkout"],
+        "summary": "เปลี่ยนตะกร้าเป็นออเดอร์",
+        "description": "ส่ง `expected_satang` เพื่อกันเคสราคาขยับระหว่างลูกค้ากดจ่าย (ไม่ตรง → `409`) · ใส่ `0` หรือไม่ส่ง = ไม่ตรวจ\n\nถ้า `pay_now=true` แล้วจ่ายไม่ผ่าน จะได้ `202` พร้อม `order_id` ให้ไปจ่ายซ้ำที่ `/orders/{id}/pay` — **ตะกร้าจะไม่ถูกล้าง**",
+        "requestBody": { "content": { "application/json": { "schema": {
+          "type": "object",
+          "properties": {
+            "expected_satang": { "type": "integer", "format": "int64", "example": 29950,
+              "description": "ยอดรวมที่ลูกค้าเห็นบนหน้าจอ (สตางค์)" },
+            "pay_now": { "type": "boolean", "default": false, "description": "จ่ายทันทีเลยไหม" }
+          } } } } },
+        "responses": {
+          "201": { "description": "สร้างออเดอร์สำเร็จ", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Receipt" } } } },
+          "202": { "description": "สร้างออเดอร์แล้วแต่จ่ายเงินไม่ผ่าน — ไปจ่ายซ้ำได้",
+            "content": { "application/json": { "schema": { "allOf": [
+              { "$ref": "#/components/schemas/Receipt" },
+              { "type": "object", "properties": { "warning": { "type": "string" } } } ] } } } },
+          "400": { "description": "ตะกร้าว่าง หรือ body ผิด", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "ยอดรวมไม่ตรงกับ expected_satang", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "description": "ของไม่พอ หรือลูกค้าถูกระงับ", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+
+    "/orders": {
+      "get": {
+        "tags": ["order"],
+        "summary": "รายการออเดอร์",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "$ref": "#/components/schemas/OrderStatus" },
+            "description": "กรองตามสถานะ (ไม่ใส่ = ทั้งหมด)" }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/OrderList" } }
+      }
+    },
+    "/orders/{id}": {
+      "parameters": [ { "$ref": "#/components/parameters/OrderID" } ],
+      "get": {
+        "tags": ["order"],
+        "summary": "ดูออเดอร์",
+        "responses": {
+          "200": { "$ref": "#/components/responses/OrderOK" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/orders/{id}/pay": {
+      "parameters": [ { "$ref": "#/components/parameters/OrderID" } ],
+      "post": {
+        "tags": ["order"],
+        "summary": "เก็บเงิน (PLACED → PAID)",
+        "responses": {
+          "200": { "$ref": "#/components/responses/OrderOK" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/BadTransition" },
+          "422": { "description": "gateway ปฏิเสธ", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/orders/{id}/prepare": {
+      "parameters": [ { "$ref": "#/components/parameters/OrderID" } ],
+      "post": {
+        "tags": ["order"],
+        "summary": "เริ่มจัดของ (PAID → PREPARING)",
+        "responses": {
+          "200": { "$ref": "#/components/responses/OrderOK" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/BadTransition" }
+        }
+      }
+    },
+    "/orders/{id}/ship": {
+      "parameters": [ { "$ref": "#/components/parameters/OrderID" } ],
+      "post": {
+        "tags": ["order"],
+        "summary": "ส่งของ (PREPARING → SHIPPED)",
+        "description": "ขั้นนี้ **ตัดสต็อกจริง** — ก่อนหน้านี้แค่จองไว้เฉยๆ",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["tracking"],
+          "properties": { "tracking": { "type": "string", "example": "TH-0001", "description": "เลขพัสดุ — ห้ามว่าง" } } } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/OrderOK" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/BadTransition" },
+          "500": { "description": "ไม่มีเลขพัสดุ หรือตัดสต็อกไม่สำเร็จ" }
+        }
+      }
+    },
+    "/orders/{id}/deliver": {
+      "parameters": [ { "$ref": "#/components/parameters/OrderID" } ],
+      "post": {
+        "tags": ["order"],
+        "summary": "ส่งถึงมือ (SHIPPED → DELIVERED)",
+        "description": "ออเดอร์จบ — ปลดจำนวนออเดอร์ค้างของลูกค้า",
+        "responses": {
+          "200": { "$ref": "#/components/responses/OrderOK" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/BadTransition" }
+        }
+      }
+    },
+    "/orders/{id}/cancel": {
+      "parameters": [ { "$ref": "#/components/parameters/OrderID" } ],
+      "post": {
+        "tags": ["order"],
+        "summary": "ยกเลิกออเดอร์",
+        "description": "ทำได้ก่อน SHIPPED เท่านั้น · คืนของที่จองไว้ และคืนเงินถ้าจ่ายมาแล้ว",
+        "responses": {
+          "200": { "$ref": "#/components/responses/OrderOK" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "ส่งของไปแล้ว ยกเลิกไม่ได้", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+
+    "/orders/{id}/payments": {
+      "parameters": [ { "$ref": "#/components/parameters/OrderID" } ],
+      "get": {
+        "tags": ["payment"],
+        "summary": "ประวัติการชำระเงินของออเดอร์",
+        "description": "รวมรายการที่ล้มเหลวด้วย — ความพยายามเก็บเงินทุกครั้งถูกบันทึกไว้",
+        "responses": {
+          "200": { "description": "รายการชำระเงิน", "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": { "payments": { "type": "array", "items": { "$ref": "#/components/schemas/Payment" } } } } } } }
+        }
+      }
+    }
+  },
+
+  "components": {
+    "parameters": {
+      "ProductID":  { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "รหัสสินค้า", "example": "prd_0001" },
+      "CustomerID": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "รหัสลูกค้า", "example": "cus_0001" },
+      "CartID":     { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "รหัสตะกร้า", "example": "crt_0001" },
+      "OrderID":    { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "รหัสออเดอร์", "example": "ord_0001" }
+    },
+
+    "responses": {
+      "NotFound":   { "description": "ไม่พบข้อมูล", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "BadRequest": { "description": "ข้อมูลที่ส่งมาไม่ถูกต้อง", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "BadTransition": {
+        "description": "เปลี่ยนสถานะข้ามขั้นไม่ได้",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" },
+          "example": { "error": "order: invalid status transition: PAID → SHIPPED" } } }
+      },
+      "OrderOK": { "description": "ออเดอร์", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } },
+      "OrderList": {
+        "description": "รายการออเดอร์",
+        "content": { "application/json": { "schema": {
+          "type": "object",
+          "properties": { "orders": { "type": "array", "items": { "$ref": "#/components/schemas/Order" } } } } } }
+      }
+    },
+
+    "schemas": {
+      "Money": {
+        "type": "object",
+        "description": "จำนวนเงิน — เก็บเป็นสตางค์ (int64) กัน float rounding · `text` มีไว้แสดงผลเฉยๆ อย่าเอาไปคำนวณ",
+        "properties": {
+          "satang": { "type": "integer", "format": "int64", "example": 8500 },
+          "text":   { "type": "string", "example": "฿85.00" }
+        },
+        "required": ["satang", "text"]
+      },
+
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string", "example": "catalog: product not found" } },
+        "required": ["error"]
+      },
+
+      "CreateProductRequest": {
+        "type": "object",
+        "required": ["sku", "name", "stock"],
+        "properties": {
+          "sku":       { "type": "string", "example": "COF-LAT" },
+          "name":      { "type": "string", "example": "Latte เย็น" },
+          "price_thb": { "type": "string", "example": "85.00", "description": "ราคาเป็นบาท (สตริง) — ใช้อันนี้หรือ satang อย่างใดอย่างหนึ่ง" },
+          "satang":    { "type": "integer", "format": "int64", "example": 8500, "description": "ราคาเป็นสตางค์" },
+          "stock":     { "type": "integer", "minimum": 0, "example": 40 }
+        }
+      },
+
+      "Product": {
+        "type": "object",
+        "properties": {
+          "id":        { "type": "string", "example": "prd_0001" },
+          "sku":       { "type": "string", "example": "COF-LAT" },
+          "name":      { "type": "string", "example": "Latte เย็น" },
+          "price":     { "$ref": "#/components/schemas/Money" },
+          "stock":     { "type": "integer", "description": "จำนวนที่มีอยู่จริงบนชั้น", "example": 40 },
+          "reserved":  { "type": "integer", "description": "จำนวนที่ถูกจองไว้ในออเดอร์ที่ยังไม่ส่ง", "example": 3 },
+          "available": { "type": "integer", "description": "ขายได้จริง = stock − reserved", "example": 37 },
+          "active":    { "type": "boolean" }
+        }
+      },
+
+      "Customer": {
+        "type": "object",
+        "properties": {
+          "id":          { "type": "string", "example": "cus_0001" },
+          "name":        { "type": "string", "example": "สนธยา" },
+          "email":       { "type": "string", "format": "email" },
+          "suspended":   { "type": "boolean" },
+          "open_orders": { "type": "integer", "description": "ออเดอร์ที่ยังไม่จบ — เกิน 5 จะสั่งเพิ่มไม่ได้", "example": 1 }
+        }
+      },
+
+      "Line": {
+        "type": "object",
+        "description": "สินค้าหนึ่งบรรทัด — ชื่อกับราคาเป็น snapshot ณ ตอนหยิบ ไม่เปลี่ยนตามแคตตาล็อก",
+        "properties": {
+          "product_id": { "type": "string" },
+          "name":       { "type": "string" },
+          "unit_price": { "$ref": "#/components/schemas/Money" },
+          "qty":        { "type": "integer" },
+          "total":      { "$ref": "#/components/schemas/Money" }
+        }
+      },
+
+      "Cart": {
+        "type": "object",
+        "properties": {
+          "id":          { "type": "string", "example": "crt_0001" },
+          "customer_id": { "type": "string" },
+          "lines":       { "type": "array", "items": { "$ref": "#/components/schemas/Line" } },
+          "item_count":  { "type": "integer", "description": "จำนวนชิ้นรวม (ไม่ใช่จำนวนบรรทัด)" },
+          "total":       { "$ref": "#/components/schemas/Money" }
+        }
+      },
+
+      "OrderStatus": {
+        "type": "string",
+        "enum": ["PLACED", "PAID", "PREPARING", "SHIPPED", "DELIVERED", "CANCELLED"]
+      },
+
+      "Order": {
+        "type": "object",
+        "properties": {
+          "id":          { "type": "string", "example": "ord_0001" },
+          "customer_id": { "type": "string" },
+          "status":      { "$ref": "#/components/schemas/OrderStatus" },
+          "lines":       { "type": "array", "items": { "$ref": "#/components/schemas/Line" } },
+          "item_count":  { "type": "integer" },
+          "total":       { "$ref": "#/components/schemas/Money" },
+          "tracking":    { "type": "string", "example": "TH-0001" },
+          "payment_id":  { "type": "string" },
+          "created_at":  { "type": "string", "format": "date-time" },
+          "updated_at":  { "type": "string", "format": "date-time" }
+        }
+      },
+
+      "Receipt": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "string", "example": "ord_0001" },
+          "total":    { "$ref": "#/components/schemas/Money" },
+          "paid":     { "type": "boolean" }
+        }
+      },
+
+      "Payment": {
+        "type": "object",
+        "properties": {
+          "id":        { "type": "string", "example": "pay_0001" },
+          "order_id":  { "type": "string" },
+          "amount":    { "$ref": "#/components/schemas/Money" },
+          "status":    { "type": "string", "enum": ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"] },
+          "reference": { "type": "string", "description": "เลขอ้างอิงจาก gateway" },
+          "reason":    { "type": "string", "description": "เหตุผลตอนล้มเหลว" }
+        }
+      }
+    }
+  }
+}

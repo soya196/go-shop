@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "ไฟล์ต่อไปนี้ยังไม่ format:"; echo "$out"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # 💎 ด่านที่ทำให้ Clean Architecture อยู่ได้จริง
+      # domain import adapter/framework เมื่อไหร่ → PR แดงทันที ไม่ต้องรอ reviewer จับ
+      - name: archlint
+        run: go run ./cmd/archlint
+
+      - name: test
+        run: go test -race -cover ./...
+
+      - name: build
+        run: go build ./...
