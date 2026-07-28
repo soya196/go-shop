@@ -1,0 +1,18 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    # อ่าน schema จาก migration ของ goose ตรงๆ — schema มีแหล่งความจริงเดียว
+    # (sqlc เข้าใจ marker "-- +goose Up/Down" อยู่แล้ว)
+    schema: "internal/migrations"
+    queries: "internal/pgstore/queries"
+    gen:
+      go:
+        package: "gen"
+        out: "internal/pgstore/gen"
+        sql_package: "pgx/v5"
+        # ไม่ต้องมี json tag — struct พวกนี้ไม่เคยออกไปหา client
+        # (adapter แปลงเป็น domain entity ก่อนเสมอ)
+        emit_json_tags: false
+        emit_interface: false
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true

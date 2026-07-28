@@ -22,6 +22,9 @@
     "adapter": [
       "internal/memory",
       "internal/jsonstore",
+      "internal/pgstore",
+      "internal/pgstore/gen",
+      "internal/migrations",
       "internal/httpapi",
       "internal/bridge",
       "internal/clock",
@@ -30,7 +33,8 @@
     ],
     "composition": [
       "cmd/api",
-      "cmd/archlint"
+      "cmd/archlint",
+      "cmd/migrate"
     ]
   },
 

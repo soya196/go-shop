@@ -35,6 +35,7 @@ import (
 	"github.com/soya196/go-shop/internal/money"
 	"github.com/soya196/go-shop/internal/order"
 	"github.com/soya196/go-shop/internal/payment"
+	"github.com/soya196/go-shop/internal/pgstore"
 	"github.com/soya196/go-shop/internal/uid"
 )
 
@@ -72,7 +73,8 @@ var version = "dev"
 func run() error {
 	var (
 		addr     = flag.String("addr", env("SHOP_ADDR", ":8080"), "ที่อยู่ที่จะ listen [SHOP_ADDR]")
-		store    = flag.String("store", env("SHOP_STORE", "memory"), "ที่เก็บข้อมูล: memory | json [SHOP_STORE]")
+		store    = flag.String("store", env("SHOP_STORE", "memory"), "ที่เก็บข้อมูล: memory | json | postgres [SHOP_STORE]")
+		dsn      = flag.String("dsn", env("DATABASE_URL", ""), "PostgreSQL DSN (ใช้เมื่อ -store=postgres) [DATABASE_URL]")
 		dataDir  = flag.String("data", env("SHOP_DATA_DIR", "./data"), "โฟลเดอร์ข้อมูล (ใช้เมื่อ -store=json) [SHOP_DATA_DIR]")
 		seed     = flag.Bool("seed", envBool("SHOP_SEED", true), "ใส่ข้อมูลตัวอย่างตอนเปิด [SHOP_SEED]")
 		maxCharg = flag.Int64("decline-over", 0, "ให้ gateway ปฏิเสธยอดที่เกินกี่สตางค์ (0 = อนุมัติหมด)")
@@ -90,12 +92,21 @@ func run() error {
 	}
 	log.Info("starting", "version", version, "store", *store, "docs", *docs)
 
+	// context สำหรับขั้นตอน startup เท่านั้น (ต่อ DB, seed)
+	// แยกจาก ctx ของ signal ด้านล่าง — ถ้าต่อ DB ไม่ติดใน 15 วิ ให้ยอมแพ้แล้วตายไปเลย
+	// ดีกว่าค้างรอจน k8s ฆ่าทิ้งโดยไม่มี log บอกสาเหตุ
+	startCtx, cancelStart := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelStart()
+
 	// ── 1) เลือก driven adapter ───────────────────────────────────
 	// 🔑 นี่คือ "เทสข้อ 1" ของคลาส: เปลี่ยนที่เก็บข้อมูลทั้งระบบตรงนี้จุดเดียว
 	//    โดย internal/catalog, internal/order ฯลฯ ไม่ถูกแตะเลย
-	repos, err := openRepos(*store, *dataDir)
+	repos, err := openRepos(startCtx, *store, *dataDir, *dsn)
 	if err != nil {
 		return err
+	}
+	if repos.close != nil {
+		defer repos.close()
 	}
 	log.Info("storage ready", "kind", *store)
 
@@ -130,7 +141,7 @@ func run() error {
 	)
 
 	if *seed {
-		if err := seedData(context.Background(), catalogSvc, customerSvc, log); err != nil {
+		if err := seedData(startCtx, catalogSvc, customerSvc, log); err != nil {
 			return fmt.Errorf("seed: %w", err)
 		}
 	}
@@ -243,14 +254,34 @@ type repoSet struct {
 	carts     cart.Repository
 	orders    order.Repository
 	payments  payment.Repository
+
+	// close ปิดทรัพยากรของ adapter (มีเฉพาะบางตัว เช่น connection pool)
+	close func()
 }
 
 // openRepos เลือก adapter ตาม flag
 //
 // สังเกตว่า return type เป็น **interface ของ domain** ไม่ใช่ struct ของ adapter
 // → ที่เหลือของโปรแกรมไม่รู้เลยว่าข้างในเป็น memory หรือ json
-func openRepos(kind, dir string) (*repoSet, error) {
+func openRepos(ctx context.Context, kind, dir, dsn string) (*repoSet, error) {
 	switch kind {
+	case "postgres", "pg":
+		if dsn == "" {
+			return nil, fmt.Errorf("-store=postgres ต้องระบุ -dsn หรือ env DATABASE_URL\n" +
+				"ตัวอย่าง: postgres://shop:shop@localhost:5433/shop?sslmode=disable")
+		}
+		s, err := pgstore.Open(ctx, dsn)
+		if err != nil {
+			return nil, err
+		}
+		return &repoSet{
+			products:  s.Catalog(),
+			customers: s.Customers(),
+			carts:     s.Carts(),
+			orders:    s.Orders(),
+			payments:  s.Payments(),
+			close:     s.Close,
+		}, nil
 	case "memory":
 		return &repoSet{
 			products:  memory.NewProducts(),
@@ -272,7 +303,7 @@ func openRepos(kind, dir string) (*repoSet, error) {
 			payments:  s.Payments,
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown -store=%q (ใช้ memory หรือ json)", kind)
+		return nil, fmt.Errorf("unknown -store=%q (ใช้ memory, json หรือ postgres)", kind)
 	}
 }
 

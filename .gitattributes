@@ -1,0 +1,7 @@
+# บังคับ LF สำหรับซอร์สโค้ด — กัน gofmt แดงบน Windows checkout
+*.go   text eol=lf
+*.sql  text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.json text eol=lf
+Makefile text eol=lf
