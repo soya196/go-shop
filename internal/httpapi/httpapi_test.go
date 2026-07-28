@@ -22,6 +22,7 @@ import (
 	"github.com/soya196/go-shop/internal/memory"
 	"github.com/soya196/go-shop/internal/order"
 	"github.com/soya196/go-shop/internal/payment"
+	"github.com/soya196/go-shop/internal/token"
 	"github.com/soya196/go-shop/internal/uid"
 )
 
@@ -29,6 +30,7 @@ import (
 type cfgOverride struct {
 	docsEnabled    bool
 	allowedOrigins []string
+	tokens         *token.Issuer // nil = ปิด auth (ค่าเริ่มต้นของเทสส่วนใหญ่)
 }
 
 func newServer(t *testing.T) *httptest.Server {
@@ -104,6 +106,7 @@ func newAPIWith(t *testing.T, tweak func(*cfgOverride)) *httpapi.API {
 		Version:        "test",
 		DocsEnabled:    over.docsEnabled,
 		AllowedOrigins: over.allowedOrigins,
+		Tokens:         over.tokens,
 	})
 }
 

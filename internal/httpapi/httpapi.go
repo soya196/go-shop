@@ -27,6 +27,7 @@ import (
 	"github.com/soya196/go-shop/internal/money"
 	"github.com/soya196/go-shop/internal/order"
 	"github.com/soya196/go-shop/internal/payment"
+	"github.com/soya196/go-shop/internal/token"
 )
 
 // Services คือชุด use case ทั้งหมดที่ API ตัวนี้เปิดให้เรียก
@@ -47,21 +48,27 @@ type Config struct {
 	Version string
 	// DocsEnabled เปิด /docs กับ /openapi.json (ควรปิดใน production ถ้า API ไม่ public)
 	DocsEnabled bool
+	// Tokens ใช้ตรวจ JWT · nil = ปิดการยืนยันตัวตน (dev/เดโมเท่านั้น)
+	Tokens *token.Issuer
 }
 
 // API คือ handler รวมของทั้งระบบ
 type API struct {
-	svc   Services
-	log   *slog.Logger
-	cfg   Config
-	ready atomic.Bool
+	svc    Services
+	log    *slog.Logger
+	cfg    Config
+	tokens *token.Issuer // nil = ปิด auth
+	ready  atomic.Bool
 }
 
 func New(svc Services, log *slog.Logger, cfg Config) *API {
 	if cfg.Version == "" {
 		cfg.Version = "dev"
 	}
-	a := &API{svc: svc, log: log, cfg: cfg}
+	a := &API{svc: svc, log: log, cfg: cfg, tokens: cfg.Tokens}
+	if a.tokens == nil {
+		log.Warn("⚠️ auth ปิดอยู่ — ทุก endpoint เรียกได้โดยไม่ต้องมี token (ตั้ง -jwt-secret เพื่อเปิด)")
+	}
 	a.ready.Store(true)
 	return a
 }
@@ -82,49 +89,67 @@ type Route struct {
 	Pattern string
 	Summary string
 	handler gin.HandlerFunc
+
+	// roles คือสิทธิ์ที่ต้องมีถึงจะเรียกได้ · nil = เปิดให้ทุกคน
+	// ใช้ตัวช่วย pub/usr/adm ด้านล่างแทนการกรอกเอง จะได้อ่านตารางรู้เรื่องทันที
+	roles []token.Role
 }
+
+// ตัวช่วยประกาศ route พร้อมระดับสิทธิ์ — อ่านคอลัมน์แรกแล้วรู้เลยว่าใครเรียกได้
+var (
+	// pub = ใครก็เรียกได้ ไม่ต้องล็อกอิน
+	pub = func(m, p, s string, h gin.HandlerFunc) Route { return Route{m, p, s, h, nil} }
+	// usr = ต้องล็อกอิน (ลูกค้าหรือแอดมินก็ได้)
+	usr = func(m, p, s string, h gin.HandlerFunc) Route {
+		return Route{m, p, s, h, []token.Role{token.RoleCustomer, token.RoleAdmin}}
+	}
+	// adm = เฉพาะแอดมิน (งานหลังร้าน)
+	adm = func(m, p, s string, h gin.HandlerFunc) Route {
+		return Route{m, p, s, h, []token.Role{token.RoleAdmin}}
+	}
+)
 
 // routes คือรายการ endpoint ทั้งหมด — ความจริงชุดเดียวของทั้ง router และเอกสาร
 func (a *API) routes() []Route {
 	return []Route{
 		// health
-		{"GET", "/healthz", "liveness — โปรเซสยังอยู่ไหม", a.healthz},
-		{"GET", "/readyz", "readiness — พร้อมรับ traffic ไหม", a.readyz},
+		pub("GET", "/healthz", "liveness — โปรเซสยังอยู่ไหม", a.healthz),
+		pub("GET", "/readyz", "readiness — พร้อมรับ traffic ไหม", a.readyz),
 
 		// catalog
-		{"GET", "/products", "ดูสินค้าที่ขายอยู่", a.listProducts},
-		{"POST", "/products", "เพิ่มสินค้า", a.createProduct},
-		{"GET", "/products/{id}", "ดูสินค้ารายตัว", a.getProduct},
-		{"POST", "/products/{id}/restock", "เติมสต็อก", a.restockProduct},
-		{"DELETE", "/products/{id}", "ปิดการขายสินค้า", a.deactivateProduct},
+		pub("GET", "/products", "ดูสินค้าที่ขายอยู่", a.listProducts),
+		adm("POST", "/products", "เพิ่มสินค้า", a.createProduct),
+		pub("GET", "/products/{id}", "ดูสินค้ารายตัว", a.getProduct),
+		adm("POST", "/products/{id}/restock", "เติมสต็อก", a.restockProduct),
+		adm("DELETE", "/products/{id}", "ปิดการขายสินค้า", a.deactivateProduct),
 
 		// customer
-		{"GET", "/customers", "รายชื่อลูกค้า", a.listCustomers},
-		{"POST", "/customers", "สมัครลูกค้าใหม่", a.createCustomer},
-		{"GET", "/customers/{id}", "ดูลูกค้ารายตัว", a.getCustomer},
-		{"GET", "/customers/{id}/orders", "ออเดอร์ของลูกค้า", a.customerOrders},
+		adm("GET", "/customers", "รายชื่อลูกค้า", a.listCustomers),
+		pub("POST", "/customers", "สมัครลูกค้าใหม่", a.createCustomer),
+		usr("GET", "/customers/{id}", "ดูลูกค้ารายตัว", a.getCustomer),
+		usr("GET", "/customers/{id}/orders", "ออเดอร์ของลูกค้า", a.customerOrders),
 
 		// cart
-		{"POST", "/carts", "เปิดตะกร้าให้ลูกค้า", a.openCart},
-		{"GET", "/carts/{id}", "ดูตะกร้า", a.getCart},
-		{"POST", "/carts/{id}/items", "หยิบสินค้าใส่ตะกร้า", a.addCartItem},
-		{"PATCH", "/carts/{id}/items/{productID}", "ปรับจำนวน (0 = เอาออก)", a.setCartQty},
-		{"DELETE", "/carts/{id}/items/{productID}", "เอาสินค้าออกจากตะกร้า", a.removeCartItem},
+		usr("POST", "/carts", "เปิดตะกร้าให้ลูกค้า", a.openCart),
+		usr("GET", "/carts/{id}", "ดูตะกร้า", a.getCart),
+		usr("POST", "/carts/{id}/items", "หยิบสินค้าใส่ตะกร้า", a.addCartItem),
+		usr("PATCH", "/carts/{id}/items/{productID}", "ปรับจำนวน (0 = เอาออก)", a.setCartQty),
+		usr("DELETE", "/carts/{id}/items/{productID}", "เอาสินค้าออกจากตะกร้า", a.removeCartItem),
 
 		// checkout
-		{"POST", "/carts/{id}/checkout", "เปลี่ยนตะกร้าเป็นออเดอร์", a.submitCheckout},
+		usr("POST", "/carts/{id}/checkout", "เปลี่ยนตะกร้าเป็นออเดอร์", a.submitCheckout),
 
 		// order
-		{"GET", "/orders", "รายการออเดอร์", a.listOrders},
-		{"GET", "/orders/{id}", "ดูออเดอร์", a.getOrder},
-		{"POST", "/orders/{id}/pay", "เก็บเงิน (PLACED → PAID)", a.payOrder},
-		{"POST", "/orders/{id}/prepare", "เริ่มจัดของ (PAID → PREPARING)", a.prepareOrder},
-		{"POST", "/orders/{id}/ship", "ส่งของ (PREPARING → SHIPPED)", a.shipOrder},
-		{"POST", "/orders/{id}/deliver", "ส่งถึงมือ (SHIPPED → DELIVERED)", a.deliverOrder},
-		{"POST", "/orders/{id}/cancel", "ยกเลิกออเดอร์", a.cancelOrder},
+		adm("GET", "/orders", "รายการออเดอร์", a.listOrders),
+		usr("GET", "/orders/{id}", "ดูออเดอร์", a.getOrder),
+		usr("POST", "/orders/{id}/pay", "เก็บเงิน (PLACED → PAID)", a.payOrder),
+		adm("POST", "/orders/{id}/prepare", "เริ่มจัดของ (PAID → PREPARING)", a.prepareOrder),
+		adm("POST", "/orders/{id}/ship", "ส่งของ (PREPARING → SHIPPED)", a.shipOrder),
+		adm("POST", "/orders/{id}/deliver", "ส่งถึงมือ (SHIPPED → DELIVERED)", a.deliverOrder),
+		usr("POST", "/orders/{id}/cancel", "ยกเลิกออเดอร์", a.cancelOrder),
 
 		// payment
-		{"GET", "/orders/{id}/payments", "ประวัติการชำระเงินของออเดอร์", a.orderPayments},
+		usr("GET", "/orders/{id}/payments", "ประวัติการชำระเงินของออเดอร์", a.orderPayments),
 	}
 }
 
@@ -144,6 +169,10 @@ func (a *API) Routes() http.Handler {
 	r.Use(recoverer(a.log), requestID(), cors(a.cfg.AllowedOrigins), requestLog(a.log))
 
 	for _, rt := range a.routes() {
+		if len(rt.roles) > 0 {
+			r.Handle(rt.Method, ginPath(rt.Pattern), a.requireRole(rt.roles...), rt.handler)
+			continue
+		}
 		r.Handle(rt.Method, ginPath(rt.Pattern), rt.handler)
 	}
 
@@ -234,11 +263,11 @@ func (a *API) listProducts(c *gin.Context) {
 
 func (a *API) createProduct(c *gin.Context) {
 	var body struct {
-		SKU      string `json:"sku"`
-		Name     string `json:"name"`
+		SKU      string `json:"sku" binding:"required,max=64"`
+		Name     string `json:"name" binding:"required,max=200"`
 		PriceTHB string `json:"price_thb"`
-		Satang   int64  `json:"satang"`
-		Stock    int    `json:"stock"`
+		Satang   int64  `json:"satang" binding:"gte=0"`
+		Stock    int    `json:"stock" binding:"gte=0"`
 	}
 	if !bind(c, &body) {
 		return
@@ -271,7 +300,7 @@ func (a *API) getProduct(c *gin.Context) {
 
 func (a *API) restockProduct(c *gin.Context) {
 	var body struct {
-		Qty int `json:"qty"`
+		Qty int `json:"qty" binding:"required,gt=0,lte=100000"`
 	}
 	if !bind(c, &body) {
 		return
@@ -325,8 +354,8 @@ func (a *API) listCustomers(c *gin.Context) {
 
 func (a *API) createCustomer(c *gin.Context) {
 	var body struct {
-		Name  string `json:"name"`
-		Email string `json:"email"`
+		Name  string `json:"name" binding:"required,max=200"`
+		Email string `json:"email" binding:"required,email,max=320"`
 	}
 	if !bind(c, &body) {
 		return
@@ -389,7 +418,7 @@ func toCartView(crt *cart.Cart) cartView {
 
 func (a *API) openCart(c *gin.Context) {
 	var body struct {
-		CustomerID string `json:"customer_id"`
+		CustomerID string `json:"customer_id" binding:"required"`
 	}
 	if !bind(c, &body) {
 		return
@@ -413,8 +442,8 @@ func (a *API) getCart(c *gin.Context) {
 
 func (a *API) addCartItem(c *gin.Context) {
 	var body struct {
-		ProductID string `json:"product_id"`
-		Qty       int    `json:"qty"`
+		ProductID string `json:"product_id" binding:"required"`
+		Qty       int    `json:"qty" binding:"required,gt=0,lte=999"`
 	}
 	if !bind(c, &body) {
 		return
@@ -429,7 +458,7 @@ func (a *API) addCartItem(c *gin.Context) {
 
 func (a *API) setCartQty(c *gin.Context) {
 	var body struct {
-		Qty int `json:"qty"`
+		Qty int `json:"qty" binding:"gte=0,lte=999"`
 	}
 	if !bind(c, &body) {
 		return
@@ -550,7 +579,7 @@ func (a *API) cancelOrder(c *gin.Context) {
 
 func (a *API) shipOrder(c *gin.Context) {
 	var body struct {
-		Tracking string `json:"tracking"`
+		Tracking string `json:"tracking" binding:"required,max=64"`
 	}
 	if !bind(c, &body) {
 		return

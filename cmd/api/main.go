@@ -36,6 +36,7 @@ import (
 	"github.com/soya196/go-shop/internal/order"
 	"github.com/soya196/go-shop/internal/payment"
 	"github.com/soya196/go-shop/internal/pgstore"
+	"github.com/soya196/go-shop/internal/token"
 	"github.com/soya196/go-shop/internal/uid"
 )
 
@@ -72,17 +73,19 @@ var version = "dev"
 
 func run() error {
 	var (
-		addr     = flag.String("addr", env("SHOP_ADDR", ":8080"), "ที่อยู่ที่จะ listen [SHOP_ADDR]")
-		store    = flag.String("store", env("SHOP_STORE", "memory"), "ที่เก็บข้อมูล: memory | json | postgres [SHOP_STORE]")
-		dsn      = flag.String("dsn", env("DATABASE_URL", ""), "PostgreSQL DSN (ใช้เมื่อ -store=postgres) [DATABASE_URL]")
-		dataDir  = flag.String("data", env("SHOP_DATA_DIR", "./data"), "โฟลเดอร์ข้อมูล (ใช้เมื่อ -store=json) [SHOP_DATA_DIR]")
-		seed     = flag.Bool("seed", envBool("SHOP_SEED", true), "ใส่ข้อมูลตัวอย่างตอนเปิด [SHOP_SEED]")
-		maxCharg = flag.Int64("decline-over", 0, "ให้ gateway ปฏิเสธยอดที่เกินกี่สตางค์ (0 = อนุมัติหมด)")
-		logFmt   = flag.String("log-format", env("SHOP_LOG_FORMAT", "text"), "รูปแบบ log: text | json [SHOP_LOG_FORMAT]")
-		logLevel = flag.String("log-level", env("SHOP_LOG_LEVEL", "info"), "ระดับ log: debug | info | warn | error [SHOP_LOG_LEVEL]")
-		docs     = flag.Bool("docs", envBool("SHOP_DOCS", true), "เปิด /docs + /openapi.json [SHOP_DOCS]")
-		origins  = flag.String("cors-origins", env("SHOP_CORS_ORIGINS", ""), "CORS origins คั่นด้วย comma · '*' = เปิดหมด [SHOP_CORS_ORIGINS]")
-		drain    = flag.Duration("drain", 3*time.Second, "รอให้ load balancer ถอดเราออกกี่วินาทีก่อนปิดจริง")
+		addr      = flag.String("addr", env("SHOP_ADDR", ":8080"), "ที่อยู่ที่จะ listen [SHOP_ADDR]")
+		store     = flag.String("store", env("SHOP_STORE", "memory"), "ที่เก็บข้อมูล: memory | json | postgres [SHOP_STORE]")
+		dsn       = flag.String("dsn", env("DATABASE_URL", ""), "PostgreSQL DSN (ใช้เมื่อ -store=postgres) [DATABASE_URL]")
+		dataDir   = flag.String("data", env("SHOP_DATA_DIR", "./data"), "โฟลเดอร์ข้อมูล (ใช้เมื่อ -store=json) [SHOP_DATA_DIR]")
+		seed      = flag.Bool("seed", envBool("SHOP_SEED", true), "ใส่ข้อมูลตัวอย่างตอนเปิด [SHOP_SEED]")
+		maxCharg  = flag.Int64("decline-over", 0, "ให้ gateway ปฏิเสธยอดที่เกินกี่สตางค์ (0 = อนุมัติหมด)")
+		logFmt    = flag.String("log-format", env("SHOP_LOG_FORMAT", "text"), "รูปแบบ log: text | json [SHOP_LOG_FORMAT]")
+		logLevel  = flag.String("log-level", env("SHOP_LOG_LEVEL", "info"), "ระดับ log: debug | info | warn | error [SHOP_LOG_LEVEL]")
+		docs      = flag.Bool("docs", envBool("SHOP_DOCS", true), "เปิด /docs + /openapi.json [SHOP_DOCS]")
+		origins   = flag.String("cors-origins", env("SHOP_CORS_ORIGINS", ""), "CORS origins คั่นด้วย comma · '*' = เปิดหมด [SHOP_CORS_ORIGINS]")
+		drain     = flag.Duration("drain", 3*time.Second, "รอให้ load balancer ถอดเราออกกี่วินาทีก่อนปิดจริง")
+		jwtSecret = flag.String("jwt-secret", env("JWT_SECRET", ""), "เปิดการยืนยันตัวตนด้วย JWT · ว่าง = ปิด auth [JWT_SECRET]")
+		jwtTTL    = flag.Duration("jwt-ttl", 1*time.Hour, "อายุของ token ที่ยอมรับ")
 	)
 	flag.Parse()
 
@@ -110,55 +113,33 @@ func run() error {
 	}
 	log.Info("storage ready", "kind", *store)
 
-	// ── 2) adapter สนับสนุน ───────────────────────────────────────
-	wallClock := clock.System{}
-	gateway := fakepay.New()
-	gateway.DeclineOver = money.FromSatang(*maxCharg)
-
-	// ── 3) ประกอบ domain service — ล่างขึ้นบนตามลำดับการพึ่งพา ────
-	catalogSvc := catalog.NewService(repos.products, uid.Random{Prefix: "prd"})
-	customerSvc := customer.NewService(repos.customers, uid.Random{Prefix: "cus"})
-	paymentSvc := payment.NewService(repos.payments, gateway, uid.Random{Prefix: "pay"}, wallClock)
-
-	cartSvc := cart.NewService(
-		repos.carts,
-		bridge.CartCatalog{Catalog: catalogSvc}, // cart.Catalog ← catalog
-		uid.Random{Prefix: "crt"},
-	)
-
-	orderSvc := order.NewService(
-		repos.orders,
-		bridge.OrderStock{Catalog: catalogSvc},       // order.Stock    ← catalog
-		bridge.OrderShoppers{Customers: customerSvc}, // order.Shoppers ← customer
-		bridge.OrderWallet{Payments: paymentSvc},     // order.Wallet   ← payment
-		uid.Random{Prefix: "ord"},
-		wallClock,
-		repos.tx, // order.TxManager
-	)
-
-	checkoutSvc := checkout.NewService(
-		bridge.CheckoutBaskets{Carts: cartSvc},  // checkout.Baskets ← cart
-		bridge.CheckoutOrders{Orders: orderSvc}, // checkout.Orders  ← order
-	)
+	// ── 2-3) adapter สนับสนุน + ประกอบ domain service ─────────────
+	svc := buildServices(repos, money.FromSatang(*maxCharg))
 
 	if *seed {
-		if err := seedData(startCtx, catalogSvc, customerSvc, log); err != nil {
+		if err := seedData(startCtx, svc.Catalog, svc.Customers, log); err != nil {
 			return fmt.Errorf("seed: %w", err)
 		}
 	}
 
 	// ── 4) driving adapter ────────────────────────────────────────
-	api := httpapi.New(httpapi.Services{
-		Catalog:   catalogSvc,
-		Customers: customerSvc,
-		Carts:     cartSvc,
-		Orders:    orderSvc,
-		Payments:  paymentSvc,
-		Checkout:  checkoutSvc,
-	}, log, httpapi.Config{
+	//
+	// ⚠️ ไม่ตั้ง -jwt-secret = auth ปิด (สะดวกตอน dev/เดโม)
+	//    httpapi.New จะ log เตือนดังๆ ให้เอง — ห้ามขึ้น production แบบนี้
+	var issuer *token.Issuer
+	if *jwtSecret != "" {
+		issuer, err = token.New(*jwtSecret, *jwtTTL)
+		if err != nil {
+			return err
+		}
+		log.Info("auth เปิดอยู่", "token_ttl", jwtTTL.String())
+	}
+
+	api := httpapi.New(svc, log, httpapi.Config{
 		Version:        version,
 		DocsEnabled:    *docs,
 		AllowedOrigins: splitCSV(*origins),
+		Tokens:         issuer,
 	})
 
 	srv := &http.Server{
@@ -246,6 +227,51 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// buildServices ประกอบ domain service ทั้งหมดจาก repository ที่เลือกไว้
+//
+// 🔑 ฟังก์ชันนี้คือ "แผนที่การพึ่งพา" ของทั้งระบบในที่เดียว
+// อ่านจากบนลงล่างแล้วเห็นว่าใครต้องการอะไร โดยไม่มี reflection ไม่มี container
+//
+// สังเกตว่าทุก dependency ที่ข้าม domain ถูกส่งผ่าน bridge.* เสมอ
+// — ไม่มี domain ไหน import domain อื่นตรงๆ (archlint บังคับไว้)
+func buildServices(repos *repoSet, declineOver money.Satang) httpapi.Services {
+	wallClock := clock.System{}
+	gateway := fakepay.New()
+	gateway.DeclineOver = declineOver
+
+	catalogSvc := catalog.NewService(repos.products, uid.Random{Prefix: "prd"})
+	customerSvc := customer.NewService(repos.customers, uid.Random{Prefix: "cus"})
+	paymentSvc := payment.NewService(repos.payments, gateway, uid.Random{Prefix: "pay"}, wallClock)
+
+	cartSvc := cart.NewService(
+		repos.carts,
+		bridge.CartCatalog{Catalog: catalogSvc}, // cart.Catalog ← catalog
+		uid.Random{Prefix: "crt"},
+	)
+
+	orderSvc := order.NewService(
+		repos.orders,
+		bridge.OrderStock{Catalog: catalogSvc},       // order.Stock    ← catalog
+		bridge.OrderShoppers{Customers: customerSvc}, // order.Shoppers ← customer
+		bridge.OrderWallet{Payments: paymentSvc},     // order.Wallet   ← payment
+		uid.Random{Prefix: "ord"},
+		wallClock,
+		repos.tx, // order.TxManager
+	)
+
+	return httpapi.Services{
+		Catalog:   catalogSvc,
+		Customers: customerSvc,
+		Carts:     cartSvc,
+		Orders:    orderSvc,
+		Payments:  paymentSvc,
+		Checkout: checkout.NewService(
+			bridge.CheckoutBaskets{Carts: cartSvc},  // checkout.Baskets ← cart
+			bridge.CheckoutOrders{Orders: orderSvc}, // checkout.Orders  ← order
+		),
+	}
 }
 
 // repoSet รวม repository ทุกตัว — ทำให้ openRepos คืนของชุดเดียวจบ

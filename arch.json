@@ -29,12 +29,14 @@
       "internal/bridge",
       "internal/clock",
       "internal/uid",
+      "internal/token",
       "internal/fakepay"
     ],
     "composition": [
       "cmd/api",
       "cmd/archlint",
-      "cmd/migrate"
+      "cmd/migrate",
+      "cmd/token"
     ]
   },
 
