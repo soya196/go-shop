@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -85,6 +86,7 @@ func newAPIWith(t *testing.T, tweak func(*cfgOverride)) *httpapi.API {
 		bridge.OrderWallet{Payments: paymentSvc},
 		&uid.Sequential{Prefix: "ord"},
 		fixed,
+		passthroughTx{},
 	)
 	checkoutSvc := checkout.NewService(
 		bridge.CheckoutBaskets{Carts: cartSvc},
@@ -398,3 +400,8 @@ func TestHealth(t *testing.T) {
 		t.Fatalf("health = %v", out)
 	}
 }
+
+// passthroughTx = TxManager สำหรับเทสที่ใช้ memory store (ไม่มี transaction จริง)
+type passthroughTx struct{}
+
+func (passthroughTx) Do(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }

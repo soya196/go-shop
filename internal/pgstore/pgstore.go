@@ -82,6 +82,20 @@ func (s *Store) q(ctx context.Context) *gen.Queries {
 	return gen.New(s.pool)
 }
 
+// Tx คืนตัวจัดการ transaction สำหรับให้ domain ใช้ผ่าน port order.TxManager
+//
+// สังเกตว่า pgstore ไม่ได้ import order เพื่อประกาศว่า "implement interface นี้"
+// — Go ใช้ structural typing เมธอด Do ที่หน้าตาตรงกันก็พอแล้ว
+func (s *Store) Tx() TxRunner { return TxRunner{s: s} }
+
+// TxRunner ทำหน้าที่เปิด/ปิด transaction จริงบน PostgreSQL
+type TxRunner struct{ s *Store }
+
+// Do รัน fn ใน transaction เดียว — สำเร็จทั้งหมดหรือ rollback ทั้งหมด
+func (t TxRunner) Do(ctx context.Context, fn func(ctx context.Context) error) error {
+	return t.s.withinTx(ctx, fn)
+}
+
 // withinTx รัน fn ใน transaction เดียว
 //
 // ถ้า ctx อยู่ใน transaction อยู่แล้ว จะ "เข้าร่วม" อันเดิมไม่เปิดซ้อน

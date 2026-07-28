@@ -128,17 +128,27 @@ func lines() []order.Line {
 	}
 }
 
+// fakeTx เลียนแบบ store ที่ "ไม่มี transaction" (เหมือน memory/json)
+// — เรียก fn ตรงๆ ไม่มี rollback · นับจำนวนครั้งไว้ตรวจว่า service เรียกใช้ port จริง
+type fakeTx struct{ calls int }
+
+func (f *fakeTx) Do(ctx context.Context, fn func(context.Context) error) error {
+	f.calls++
+	return fn(ctx)
+}
+
 type rig struct {
 	svc      *order.Service
 	repo     *fakeRepo
 	stock    *fakeStock
 	shoppers *fakeShoppers
 	wallet   *fakeWallet
+	tx       *fakeTx
 }
 
 func newRig() *rig {
-	r := &rig{repo: newFakeRepo(), stock: newFakeStock(), shoppers: &fakeShoppers{}, wallet: &fakeWallet{}}
-	r.svc = order.NewService(r.repo, r.stock, r.shoppers, r.wallet, &seqIDs{}, newClock())
+	r := &rig{repo: newFakeRepo(), stock: newFakeStock(), shoppers: &fakeShoppers{}, wallet: &fakeWallet{}, tx: &fakeTx{}}
+	r.svc = order.NewService(r.repo, r.stock, r.shoppers, r.wallet, &seqIDs{}, newClock(), r.tx)
 	return r
 }
 

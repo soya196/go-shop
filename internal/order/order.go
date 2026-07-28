@@ -211,6 +211,20 @@ type Clock interface {
 	Now() time.Time
 }
 
+// TxManager เป็น port สำหรับ "งานกลุ่มนี้ต้องสำเร็จหรือล้มพร้อมกัน"
+//
+// 🔑 สังเกตว่า signature ไม่มีคำว่า transaction, SQL, commit หรือ rollback เลย
+// domain แค่บอกว่า "ทำสิ่งเหล่านี้ให้เป็นหน่วยเดียว" ส่วน "ทำยังไง" เป็นเรื่องของ adapter:
+//
+//	pgstore → BEGIN / COMMIT / ROLLBACK ของจริง
+//	memory  → ไม่มีอะไรให้ rollback (ดู cmd/api — compensating action ยังทำงานแทน)
+//
+// ทำไมต้องส่ง ctx เข้าไปใหม่ใน fn: adapter ที่ทำ transaction จริงจะแนบ handle
+// ของ transaction ไปกับ context — repo ที่ถูกเรียกข้างในถึงจะรู้ว่าต้องใช้ตัวไหน
+type TxManager interface {
+	Do(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
 // IDGenerator เป็น port สำหรับสร้าง id
 type IDGenerator interface {
 	NewID() string

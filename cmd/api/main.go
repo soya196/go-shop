@@ -133,6 +133,7 @@ func run() error {
 		bridge.OrderWallet{Payments: paymentSvc},     // order.Wallet   ← payment
 		uid.Random{Prefix: "ord"},
 		wallClock,
+		repos.tx, // order.TxManager
 	)
 
 	checkoutSvc := checkout.NewService(
@@ -255,6 +256,10 @@ type repoSet struct {
 	orders    order.Repository
 	payments  payment.Repository
 
+	// tx คือตัวจัดการ transaction ของ store ตัวนั้น
+	// postgres = ของจริง · memory/json = ตัวที่ไม่ทำอะไร (ดู noTx)
+	tx order.TxManager
+
 	// close ปิดทรัพยากรของ adapter (มีเฉพาะบางตัว เช่น connection pool)
 	close func()
 }
@@ -280,6 +285,7 @@ func openRepos(ctx context.Context, kind, dir, dsn string) (*repoSet, error) {
 			carts:     s.Carts(),
 			orders:    s.Orders(),
 			payments:  s.Payments(),
+			tx:        s.Tx(), // ✅ transaction จริง
 			close:     s.Close,
 		}, nil
 	case "memory":
@@ -289,6 +295,7 @@ func openRepos(ctx context.Context, kind, dir, dsn string) (*repoSet, error) {
 			carts:     memory.NewCarts(),
 			orders:    memory.NewOrders(),
 			payments:  memory.NewPayments(),
+			tx:        noTx{}, // ⚠️ ไม่มี transaction — ดู noTx
 		}, nil
 	case "json":
 		s, err := jsonstore.Open(dir)
@@ -301,6 +308,7 @@ func openRepos(ctx context.Context, kind, dir, dsn string) (*repoSet, error) {
 			carts:     s.Carts,
 			orders:    s.Orders,
 			payments:  s.Payments,
+			tx:        noTx{}, // ⚠️ ไม่มี transaction — ดู noTx
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown -store=%q (ใช้ memory, json หรือ postgres)", kind)
@@ -346,3 +354,15 @@ func seedData(ctx context.Context, cat *catalog.Service, cus *customer.Service, 
 	log.Info("seed complete", "new_products", added)
 	return nil
 }
+
+// noTx เป็น TxManager สำหรับ store ที่ไม่รองรับ transaction (memory, json)
+//
+// ⚠️ มันแค่เรียก fn ตรงๆ — ไม่มี rollback
+// ความปลอดภัยของ Place/Cancel/Ship บน store พวกนี้จึงพึ่ง "compensating action"
+// (releaseAll ใน internal/order/service.go) ซึ่งเป็น best-effort ไม่ใช่ของแท้
+//
+// ตั้งใจให้เห็นชัดว่าตรงนี้คือข้อจำกัดของ adapter ไม่ใช่ของ domain:
+// เปลี่ยนเป็น -store=postgres เมื่อไหร่ ได้ atomicity จริงทันทีโดยไม่ต้องแก้ domain
+type noTx struct{}
+
+func (noTx) Do(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
