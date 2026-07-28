@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -28,17 +29,30 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
+// Options ปรับพฤติกรรมของ Store
+type Options struct {
+	// Tracing เปิด span ของ OpenTelemetry ต่อ query หนึ่งครั้ง
+	// → เห็นใน trace ว่า request นี้ยิง SQL อะไรไปบ้าง แต่ละอันใช้เวลาเท่าไร
+	Tracing bool
+}
+
 // Open ต่อฐานข้อมูลแล้วเช็คว่าต่อติดจริง
 //
 // ตั้งค่า pool ไว้แบบระวังตัว: MaxConns ต่ำกว่าที่ PostgreSQL รับได้เสมอ
 // เพราะแอปหลาย instance รวมกันแล้วต้องไม่เกิน max_connections ของ DB
-func Open(ctx context.Context, dsn string) (*Store, error) {
+func Open(ctx context.Context, dsn string, opts ...Options) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("pgstore: DSN ไม่ถูกต้อง: %w", err)
 	}
 	if cfg.MaxConns == 0 {
 		cfg.MaxConns = 10
+	}
+	if len(opts) > 0 && opts[0].Tracing {
+		// otelpgx ห่อทุก query ให้เป็น span — เราไม่ต้องแตะโค้ด repo เลยสักบรรทัด
+		cfg.ConnConfig.Tracer = otelpgx.NewTracer(
+			otelpgx.WithTrimSQLInSpanName(),
+		)
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)

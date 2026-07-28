@@ -1,5 +1,5 @@
 .PHONY: help run run-json run-pg docs test test-v cover race arch check build docker docker-run clean \
-        tools db-up db-down db-logs migrate migrate-status migrate-reset generate lint vuln
+        tools db-up db-down db-logs migrate migrate-status migrate-reset generate lint vuln run-trace token
 
 BIN     := bin/api
 VERSION := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
@@ -52,6 +52,12 @@ run-json:                   ## รัน API (เก็บลงไฟล์ JSO
 
 run-pg:                     ## รัน API ต่อ PostgreSQL (ต้อง make db-up + make migrate ก่อน)
 	go run ./cmd/api -store=postgres -dsn "$(DSN)"
+
+run-trace:                  ## รัน API พร้อม tracing แบบพิมพ์ span ลงจอ (ดู HTTP -> SQL ในต้นเดียว)
+	go run ./cmd/api -store=postgres -dsn "$(DSN)" -trace=stdout
+
+token:                      ## ออก JWT สำหรับทดสอบ · ใช้: make token ROLE=admin SUB=adm_1
+	@go run ./cmd/token -secret "$(JWT_SECRET)" -role "$(or $(ROLE),customer)" -sub "$(or $(SUB),test_1)"
 
 docs:                       ## เปิด Swagger UI ในเบราว์เซอร์ (ต้องรัน make run ค้างไว้ก่อน)
 	@echo "→ http://localhost:8080/docs"

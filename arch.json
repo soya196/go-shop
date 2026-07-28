@@ -30,6 +30,7 @@
       "internal/clock",
       "internal/uid",
       "internal/token",
+      "internal/tracing",
       "internal/fakepay"
     ],
     "composition": [

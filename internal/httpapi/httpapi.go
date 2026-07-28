@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"github.com/soya196/go-shop/internal/cart"
 	"github.com/soya196/go-shop/internal/catalog"
@@ -50,6 +51,10 @@ type Config struct {
 	DocsEnabled bool
 	// Tokens ใช้ตรวจ JWT · nil = ปิดการยืนยันตัวตน (dev/เดโมเท่านั้น)
 	Tokens *token.Issuer
+	// TracingEnabled ใส่ middleware ของ OpenTelemetry เข้าไปในสาย
+	TracingEnabled bool
+	// ServiceName ใช้ตั้งชื่อ span (ค่าว่าง = "go-shop")
+	ServiceName string
 }
 
 // API คือ handler รวมของทั้งระบบ
@@ -167,6 +172,16 @@ func (a *API) Routes() http.Handler {
 	//
 	// ⚠️ recoverer ต้องอยู่นอกสุด (ตัวแรก) เพราะต้องดัก panic ที่เกิดใน middleware ตัวอื่นด้วย
 	r.Use(recoverer(a.log), requestID(), cors(a.cfg.AllowedOrigins), requestLog(a.log))
+
+	// tracing วางไว้ "หลัง" requestID เพื่อให้ span มี request_id ติดไปด้วย
+	// และ "ก่อน" handler เพื่อให้ span ครอบเวลาทำงานจริงทั้งหมด
+	if a.cfg.TracingEnabled {
+		name := a.cfg.ServiceName
+		if name == "" {
+			name = "go-shop"
+		}
+		r.Use(otelgin.Middleware(name))
+	}
 
 	for _, rt := range a.routes() {
 		if len(rt.roles) > 0 {

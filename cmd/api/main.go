@@ -37,6 +37,7 @@ import (
 	"github.com/soya196/go-shop/internal/payment"
 	"github.com/soya196/go-shop/internal/pgstore"
 	"github.com/soya196/go-shop/internal/token"
+	"github.com/soya196/go-shop/internal/tracing"
 	"github.com/soya196/go-shop/internal/uid"
 )
 
@@ -86,6 +87,9 @@ func run() error {
 		drain     = flag.Duration("drain", 3*time.Second, "รอให้ load balancer ถอดเราออกกี่วินาทีก่อนปิดจริง")
 		jwtSecret = flag.String("jwt-secret", env("JWT_SECRET", ""), "เปิดการยืนยันตัวตนด้วย JWT · ว่าง = ปิด auth [JWT_SECRET]")
 		jwtTTL    = flag.Duration("jwt-ttl", 1*time.Hour, "อายุของ token ที่ยอมรับ")
+		traceExp  = flag.String("trace", env("OTEL_EXPORTER", "none"), "tracing: none | stdout | otlp [OTEL_EXPORTER]")
+		traceEP   = flag.String("trace-endpoint", env("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318"), "ที่อยู่ OTLP collector [OTEL_EXPORTER_OTLP_ENDPOINT]")
+		traceRate = flag.Float64("trace-sample", 1.0, "สัดส่วนที่จะเก็บ trace 0.0-1.0 (prod traffic สูงควรต่ำกว่า 1)")
 	)
 	flag.Parse()
 
@@ -94,6 +98,13 @@ func run() error {
 		return err
 	}
 	log.Info("starting", "version", version, "store", *store, "docs", *docs)
+
+	// ── 0) tracing — ตั้งก่อนอย่างอื่น เพื่อให้ span ครอบตั้งแต่ต้น ────
+	stopTracing, err := startTracing(*traceExp, *traceEP, *traceRate, log)
+	if err != nil {
+		return err
+	}
+	defer stopTracing()
 
 	// context สำหรับขั้นตอน startup เท่านั้น (ต่อ DB, seed)
 	// แยกจาก ctx ของ signal ด้านล่าง — ถ้าต่อ DB ไม่ติดใน 15 วิ ให้ยอมแพ้แล้วตายไปเลย
@@ -104,7 +115,7 @@ func run() error {
 	// ── 1) เลือก driven adapter ───────────────────────────────────
 	// 🔑 นี่คือ "เทสข้อ 1" ของคลาส: เปลี่ยนที่เก็บข้อมูลทั้งระบบตรงนี้จุดเดียว
 	//    โดย internal/catalog, internal/order ฯลฯ ไม่ถูกแตะเลย
-	repos, err := openRepos(startCtx, *store, *dataDir, *dsn)
+	repos, err := openRepos(startCtx, *store, *dataDir, *dsn, *traceExp != "none")
 	if err != nil {
 		return err
 	}
@@ -140,6 +151,8 @@ func run() error {
 		DocsEnabled:    *docs,
 		AllowedOrigins: splitCSV(*origins),
 		Tokens:         issuer,
+		TracingEnabled: *traceExp != "none",
+		ServiceName:    "go-shop",
 	})
 
 	srv := &http.Server{
@@ -229,6 +242,33 @@ func splitCSV(s string) []string {
 	return out
 }
 
+// startTracing ตั้งค่า OpenTelemetry แล้วคืนฟังก์ชันปิดที่เรียกได้เลย
+//
+// รวม flush timeout ไว้ในตัว — ผู้เรียกแค่ defer ไม่ต้องจัดการ context เอง
+func startTracing(exporter, endpoint string, sample float64, log *slog.Logger) (func(), error) {
+	shutdown, err := tracing.Setup(context.Background(), tracing.Config{
+		Exporter:    exporter,
+		Endpoint:    endpoint,
+		ServiceName: "go-shop",
+		Version:     version,
+		SampleRatio: sample,
+	})
+	if err != nil {
+		return func() {}, fmt.Errorf("tracing: %w", err)
+	}
+	if exporter != "none" {
+		log.Info("tracing เปิดอยู่", "exporter", exporter, "sample", sample)
+	}
+	return func() {
+		// ให้เวลา flush span ที่ค้างอยู่ก่อนโปรเซสตาย ไม่งั้น trace ท่อนสุดท้ายหาย
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdown(ctx); err != nil {
+			log.Warn("ปิด tracing ไม่เรียบร้อย", "err", err)
+		}
+	}, nil
+}
+
 // buildServices ประกอบ domain service ทั้งหมดจาก repository ที่เลือกไว้
 //
 // 🔑 ฟังก์ชันนี้คือ "แผนที่การพึ่งพา" ของทั้งระบบในที่เดียว
@@ -294,14 +334,14 @@ type repoSet struct {
 //
 // สังเกตว่า return type เป็น **interface ของ domain** ไม่ใช่ struct ของ adapter
 // → ที่เหลือของโปรแกรมไม่รู้เลยว่าข้างในเป็น memory หรือ json
-func openRepos(ctx context.Context, kind, dir, dsn string) (*repoSet, error) {
+func openRepos(ctx context.Context, kind, dir, dsn string, tracing bool) (*repoSet, error) {
 	switch kind {
 	case "postgres", "pg":
 		if dsn == "" {
 			return nil, fmt.Errorf("-store=postgres ต้องระบุ -dsn หรือ env DATABASE_URL\n" +
 				"ตัวอย่าง: postgres://shop:shop@localhost:5433/shop?sslmode=disable")
 		}
-		s, err := pgstore.Open(ctx, dsn)
+		s, err := pgstore.Open(ctx, dsn, pgstore.Options{Tracing: tracing})
 		if err != nil {
 			return nil, err
 		}
