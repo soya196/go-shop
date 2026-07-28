@@ -15,6 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+
 	"github.com/soya196/go-shop/internal/money"
 )
 
@@ -24,42 +27,51 @@ type contextT = context.Context
 // maxBody จำกัดขนาด request body — กัน client ยัด payload มหึมาเข้ามา
 const maxBody = 1 << 20 // 1 MiB
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
+func writeJSON(c *gin.Context, status int, v any) {
 	if v == nil {
+		c.Status(status)
 		return
 	}
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(v)
+	c.IndentedJSON(status, v)
 }
 
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+func writeErr(c *gin.Context, status int, msg string) {
+	c.AbortWithStatusJSON(status, gin.H{"error": msg})
 }
 
-// decode อ่าน JSON body พร้อมกันเคสพื้นฐาน — คืน false ถ้าตอบ error ไปแล้ว
-func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-	dec := json.NewDecoder(r.Body)
+// bind อ่าน JSON body พร้อมกันเคสพื้นฐาน — คืน false ถ้าตอบ error ไปแล้ว
+//
+// ทำไมไม่ใช้ c.ShouldBindJSON ตรงๆ:
+// ค่า default ของ gin ยอมรับ field ที่ไม่รู้จักแบบเงียบๆ และไม่เช็ค JSON ก้อนที่สอง
+// ซึ่งหลวมกว่าที่ API นี้ต้องการ — พิมพ์ชื่อ field ผิดควรได้ 400 ไม่ใช่ค่า zero เงียบๆ
+//
+// แต่ยังได้ของดีจาก gin: หลัง decode สำเร็จจะเรียก validator ให้ด้วย
+// → ใส่ tag `binding:"required,min=1"` บน struct แล้วใช้ได้เลย
+func bind(c *gin.Context, dst any) bool {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBody)
+	dec := json.NewDecoder(c.Request.Body)
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(dst); err != nil {
 		var maxErr *http.MaxBytesError
 		switch {
 		case errors.Is(err, io.EOF):
-			writeErr(w, http.StatusBadRequest, "request body is empty")
+			writeErr(c, http.StatusBadRequest, "request body is empty")
 		case errors.As(err, &maxErr):
-			writeErr(w, http.StatusRequestEntityTooLarge, "request body too large")
+			writeErr(c, http.StatusRequestEntityTooLarge, "request body too large")
 		default:
-			writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+			writeErr(c, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		}
 		return false
 	}
 	// ห้ามมี JSON ก้อนที่สองต่อท้าย
 	if dec.More() {
-		writeErr(w, http.StatusBadRequest, "request body must contain a single JSON object")
+		writeErr(c, http.StatusBadRequest, "request body must contain a single JSON object")
+		return false
+	}
+	// validator ของ gin — เป็น no-op ถ้า struct ไม่มี tag `binding:"..."`
+	if err := binding.Validator.ValidateStruct(dst); err != nil {
+		writeErr(c, http.StatusBadRequest, "validation failed: "+err.Error())
 		return false
 	}
 	return true
@@ -131,127 +143,120 @@ func newRequestID() string {
 }
 
 // ───────────────────────── middleware ─────────────────────────
-
-type middleware func(http.Handler) http.Handler
-
-// statusRecorder จำ status code + จำนวน byte ไว้ให้ log
-type statusRecorder struct {
-	http.ResponseWriter
-	status  int
-	written int
-}
-
-func (s *statusRecorder) WriteHeader(code int) {
-	s.status = code
-	s.ResponseWriter.WriteHeader(code)
-}
-
-func (s *statusRecorder) Write(b []byte) (int, error) {
-	n, err := s.ResponseWriter.Write(b)
-	s.written += n
-	return n, err
-}
+//
+// เขียนเป็น gin.HandlerFunc แทน func(http.Handler) http.Handler
+// ลำดับการทำงานเหมือนเดิมทุกประการ: recoverer → requestID → cors → requestLog → handler
+//
+// ต่างกันตรงที่ gin เรียงตามลำดับที่ Use() ตรงๆ — ไม่ต้องอ่านกลับหัวเหมือนตอนห่อ stdlib
 
 // requestID ให้ทุก request มีรหัสติดตัว
 //
 // ถ้า client (หรือ gateway ต้นทาง) ส่ง X-Request-Id มาแล้วให้ใช้ของเดิม
 // เพื่อให้ตาม trace ข้ามหลาย service ได้ · ถ้าไม่มีก็สร้างใหม่
 // และตอบกลับไปใน response header เสมอ → ลูกค้าแจ้งปัญหาพร้อม id = หา log เจอทันที
-func requestID(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := r.Header.Get(RequestIDHeader)
+func requestID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.GetHeader(RequestIDHeader)
 		if id == "" || len(id) > 128 {
 			id = newRequestID()
 		}
-		w.Header().Set(RequestIDHeader, id)
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestIDKey, id)))
-	})
+		c.Header(RequestIDHeader, id)
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestIDKey, id))
+		c.Next()
+	}
 }
 
 // requestLog เขียน access log หนึ่งบรรทัดต่อ request
 //
 // ระดับ log เลือกตาม status: 5xx = Error, 4xx = Warn, ที่เหลือ = Info
 // → กรอง log ตอนมีปัญหาได้โดยไม่ต้องอ่านทุกบรรทัด
-func requestLog(log *slog.Logger) middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-			next.ServeHTTP(rec, r)
+//
+// ไม่ต้องเขียน statusRecorder เองแล้ว — gin.ResponseWriter จำ status/size ให้ในตัว
+func requestLog(log *slog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
 
-			attrs := []any{
-				"request_id", RequestIDFrom(r.Context()),
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", rec.status,
-				"bytes", rec.written,
-				"ms", time.Since(start).Milliseconds(),
-			}
-			switch {
-			case rec.status >= 500:
-				log.Error("http", attrs...)
-			case rec.status >= 400:
-				log.Warn("http", attrs...)
-			default:
-				log.Info("http", attrs...)
-			}
-		})
+		written := c.Writer.Size()
+		if written < 0 {
+			written = 0
+		}
+		status := c.Writer.Status()
+		attrs := []any{
+			"request_id", RequestIDFrom(c.Request.Context()),
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", status,
+			"bytes", written,
+			"ms", time.Since(start).Milliseconds(),
+		}
+		switch {
+		case status >= 500:
+			log.Error("http", attrs...)
+		case status >= 400:
+			log.Warn("http", attrs...)
+		default:
+			log.Info("http", attrs...)
+		}
 	}
 }
 
 // recoverer กัน panic ใน handler ไม่ให้ล้มทั้งเซิร์ฟเวอร์
 //
+// เขียนเองแทน gin.Recovery() เพราะอยาก log ผ่าน slog ตัวเดียวกับที่เหลือ พร้อม request_id
+// ไม่ใช่พิมพ์ลง stdout เป็นอีกรูปแบบหนึ่ง
+//
 // เก็บ stack trace ไว้ใน log แต่ไม่ส่งออกไปให้ client (กันข้อมูลภายในรั่ว)
-func recoverer(log *slog.Logger) middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func() {
-				if rec := recover(); rec != nil {
-					log.Error("panic recovered",
-						"request_id", RequestIDFrom(r.Context()),
-						"err", rec,
-						"method", r.Method,
-						"path", r.URL.Path,
-						"stack", string(debug.Stack()),
-					)
-					writeErr(w, http.StatusInternalServerError, "internal error")
+func recoverer(log *slog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Error("panic recovered",
+					"request_id", RequestIDFrom(c.Request.Context()),
+					"err", rec,
+					"method", c.Request.Method,
+					"path", c.Request.URL.Path,
+					"stack", string(debug.Stack()),
+				)
+				if c.Writer.Written() {
+					c.Abort() // header ออกไปแล้ว เขียนทับไม่ได้
+					return
 				}
-			}()
-			next.ServeHTTP(w, r)
-		})
+				writeErr(c, http.StatusInternalServerError, "internal error")
+			}
+		}()
+		c.Next()
 	}
 }
 
 // cors อนุญาตให้เบราว์เซอร์จาก origin ที่กำหนดเรียก API ได้
 //
 // รายการว่าง = ปิดสนิท (ปลอดภัยเป็นค่าเริ่มต้น) · ["*"] = เปิดหมด (ใช้เฉพาะตอน dev)
-func cors(allowed []string) middleware {
+func cors(allowed []string) gin.HandlerFunc {
 	allowAll := len(allowed) == 1 && allowed[0] == "*"
 	set := make(map[string]bool, len(allowed))
 	for _, o := range allowed {
 		set[o] = true
 	}
 
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if origin != "" && (allowAll || set[origin]) {
-				if allowAll {
-					w.Header().Set("Access-Control-Allow-Origin", "*")
-				} else {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					w.Header().Add("Vary", "Origin")
-				}
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, "+RequestIDHeader)
-				w.Header().Set("Access-Control-Expose-Headers", RequestIDHeader)
-				w.Header().Set("Access-Control-Max-Age", "600")
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin != "" && (allowAll || set[origin]) {
+			if allowAll {
+				c.Header("Access-Control-Allow-Origin", "*")
+			} else {
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Writer.Header().Add("Vary", "Origin")
 			}
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, "+RequestIDHeader)
+			c.Header("Access-Control-Expose-Headers", RequestIDHeader)
+			c.Header("Access-Control-Max-Age", "600")
+		}
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
 	}
 }

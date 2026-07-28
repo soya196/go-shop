@@ -14,8 +14,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/soya196/go-shop/internal/cart"
 	"github.com/soya196/go-shop/internal/catalog"
@@ -78,7 +81,7 @@ type Route struct {
 	Method  string
 	Pattern string
 	Summary string
-	handler http.HandlerFunc
+	handler gin.HandlerFunc
 }
 
 // routes คือรายการ endpoint ทั้งหมด — ความจริงชุดเดียวของทั้ง router และเอกสาร
@@ -130,24 +133,37 @@ func (a *API) routes() []Route {
 // ใช้ pattern routing ของ net/http (Go 1.22+) — "METHOD /path/{param}"
 // middleware ห่อจากนอกเข้าใน: recover → requestID → log → mux
 func (a *API) Routes() http.Handler {
-	mux := http.NewServeMux()
+	// ReleaseMode: ปิด debug log ของ gin (เราใช้ requestLog ของเราเอง)
+	// และปิดคำเตือน "running in debug mode" ที่รกเวลารันเทส
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
 
-	for _, r := range a.routes() {
-		mux.HandleFunc(r.Method+" "+r.Pattern, r.handler)
+	// middleware — gin เรียงตามลำดับที่ Use() ตรงๆ อ่านจากบนลงล่างได้เลย
+	//
+	// ⚠️ recoverer ต้องอยู่นอกสุด (ตัวแรก) เพราะต้องดัก panic ที่เกิดใน middleware ตัวอื่นด้วย
+	r.Use(recoverer(a.log), requestID(), cors(a.cfg.AllowedOrigins), requestLog(a.log))
+
+	for _, rt := range a.routes() {
+		r.Handle(rt.Method, ginPath(rt.Pattern), rt.handler)
 	}
 
 	// เอกสาร — ไม่อยู่ในตาราง routes เพราะไม่ใช่ API ของธุรกิจ
-	a.mountDocs(mux)
+	a.mountDocs(r)
 
 	// legacy alias — ของเดิมใช้ /health ก่อนแยกเป็น healthz/readyz
-	mux.HandleFunc("GET /health", a.healthz)
+	r.GET("/health", a.healthz)
 
-	var h http.Handler = mux
-	h = requestLog(a.log)(h)
-	h = cors(a.cfg.AllowedOrigins)(h)
-	h = requestID(h)
-	h = recoverer(a.log)(h)
-	return h
+	return r
+}
+
+// ginPath แปลง pattern แบบ stdlib เป็นแบบ gin: "/carts/{id}/items" → "/carts/:id/items"
+//
+// 🔑 ทำไมไม่เก็บเป็น ":id" ในตาราง routes ไปเลย:
+// openapi.json ใช้รูปแบบ {id} ตามมาตรฐาน OpenAPI — ถ้าตารางเปลี่ยนไปใช้ :id
+// เทสที่เทียบ "โค้ด ↔ เอกสาร" (openapi_test.go) จะเทียบกันไม่ได้อีก
+// → เก็บรูปแบบมาตรฐานไว้ แล้วแปลงเฉพาะตอน register กับ router
+func ginPath(pattern string) string {
+	return strings.NewReplacer("{", ":", "}", "").Replace(pattern)
 }
 
 // ───────────────────────── health ─────────────────────────
@@ -156,20 +172,20 @@ func (a *API) Routes() http.Handler {
 //
 // อย่าใส่การเช็ค dependency ตรงนี้ — ไม่งั้น DB ล่มชั่วคราวจะทำให้ k8s ฆ่า pod ทิ้ง
 // ทั้งที่แค่รอ DB กลับมาก็พอ
-func (a *API) healthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+func (a *API) healthz(c *gin.Context) {
+	writeJSON(c, http.StatusOK, map[string]any{"status": "ok"})
 }
 
 // readyz = readiness · บอกว่าพร้อมรับ traffic ไหม
-func (a *API) readyz(w http.ResponseWriter, _ *http.Request) {
+func (a *API) readyz(c *gin.Context) {
 	if !a.ready.Load() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+		writeJSON(c, http.StatusServiceUnavailable, map[string]any{
 			"status":  "shutting_down",
 			"version": a.cfg.Version,
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(c, http.StatusOK, map[string]any{
 		"status":  "ready",
 		"version": a.cfg.Version,
 	})
@@ -195,28 +211,28 @@ func toProductView(p *catalog.Product) productView {
 	}
 }
 
-func (a *API) listProducts(w http.ResponseWriter, r *http.Request) {
+func (a *API) listProducts(c *gin.Context) {
 	var (
 		list []*catalog.Product
 		err  error
 	)
-	if r.URL.Query().Get("all") == "true" {
-		list, err = a.svc.Catalog.ListAll(r.Context())
+	if c.Query("all") == "true" {
+		list, err = a.svc.Catalog.ListAll(c.Request.Context())
 	} else {
-		list, err = a.svc.Catalog.Browse(r.Context())
+		list, err = a.svc.Catalog.Browse(c.Request.Context())
 	}
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
 	out := make([]productView, 0, len(list))
 	for _, p := range list {
 		out = append(out, toProductView(p))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"products": out})
+	writeJSON(c, http.StatusOK, map[string]any{"products": out})
 }
 
-func (a *API) createProduct(w http.ResponseWriter, r *http.Request) {
+func (a *API) createProduct(c *gin.Context) {
 	var body struct {
 		SKU      string `json:"sku"`
 		Name     string `json:"name"`
@@ -224,60 +240,60 @@ func (a *API) createProduct(w http.ResponseWriter, r *http.Request) {
 		Satang   int64  `json:"satang"`
 		Stock    int    `json:"stock"`
 	}
-	if !decode(w, r, &body) {
+	if !bind(c, &body) {
 		return
 	}
 	price := money.FromSatang(body.Satang)
 	if body.PriceTHB != "" {
 		p, err := parseBaht(body.PriceTHB)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid price_thb")
+			writeErr(c, http.StatusBadRequest, "invalid price_thb")
 			return
 		}
 		price = p
 	}
-	p, err := a.svc.Catalog.AddProduct(r.Context(), body.SKU, body.Name, price, body.Stock)
+	p, err := a.svc.Catalog.AddProduct(c.Request.Context(), body.SKU, body.Name, price, body.Stock)
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toProductView(p))
+	writeJSON(c, http.StatusCreated, toProductView(p))
 }
 
-func (a *API) getProduct(w http.ResponseWriter, r *http.Request) {
-	p, err := a.svc.Catalog.Get(r.Context(), r.PathValue("id"))
+func (a *API) getProduct(c *gin.Context) {
+	p, err := a.svc.Catalog.Get(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toProductView(p))
+	writeJSON(c, http.StatusOK, toProductView(p))
 }
 
-func (a *API) restockProduct(w http.ResponseWriter, r *http.Request) {
+func (a *API) restockProduct(c *gin.Context) {
 	var body struct {
 		Qty int `json:"qty"`
 	}
-	if !decode(w, r, &body) {
+	if !bind(c, &body) {
 		return
 	}
-	if err := a.svc.Catalog.Restock(r.Context(), r.PathValue("id"), body.Qty); err != nil {
-		a.fail(w, err)
+	if err := a.svc.Catalog.Restock(c.Request.Context(), c.Param("id"), body.Qty); err != nil {
+		a.fail(c, err)
 		return
 	}
-	p, err := a.svc.Catalog.Get(r.Context(), r.PathValue("id"))
+	p, err := a.svc.Catalog.Get(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toProductView(p))
+	writeJSON(c, http.StatusOK, toProductView(p))
 }
 
-func (a *API) deactivateProduct(w http.ResponseWriter, r *http.Request) {
-	if err := a.svc.Catalog.Deactivate(r.Context(), r.PathValue("id")); err != nil {
-		a.fail(w, err)
+func (a *API) deactivateProduct(c *gin.Context) {
+	if err := a.svc.Catalog.Deactivate(c.Request.Context(), c.Param("id")); err != nil {
+		a.fail(c, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	c.Status(http.StatusNoContent)
 }
 
 // ───────────────────────── customer ─────────────────────────
@@ -290,59 +306,59 @@ type customerView struct {
 	OpenOrders int    `json:"open_orders"`
 }
 
-func toCustomerView(c *customer.Customer) customerView {
-	return customerView{ID: c.ID, Name: c.Name, Email: c.Email, Suspended: c.Suspended, OpenOrders: c.OpenOrders}
+func toCustomerView(cus *customer.Customer) customerView {
+	return customerView{ID: cus.ID, Name: cus.Name, Email: cus.Email, Suspended: cus.Suspended, OpenOrders: cus.OpenOrders}
 }
 
-func (a *API) listCustomers(w http.ResponseWriter, r *http.Request) {
-	list, err := a.svc.Customers.List(r.Context())
+func (a *API) listCustomers(c *gin.Context) {
+	list, err := a.svc.Customers.List(c.Request.Context())
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
 	out := make([]customerView, 0, len(list))
-	for _, c := range list {
-		out = append(out, toCustomerView(c))
+	for _, cus := range list {
+		out = append(out, toCustomerView(cus))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"customers": out})
+	writeJSON(c, http.StatusOK, map[string]any{"customers": out})
 }
 
-func (a *API) createCustomer(w http.ResponseWriter, r *http.Request) {
+func (a *API) createCustomer(c *gin.Context) {
 	var body struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	}
-	if !decode(w, r, &body) {
+	if !bind(c, &body) {
 		return
 	}
-	c, err := a.svc.Customers.Register(r.Context(), body.Name, body.Email)
+	cus, err := a.svc.Customers.Register(c.Request.Context(), body.Name, body.Email)
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toCustomerView(c))
+	writeJSON(c, http.StatusCreated, toCustomerView(cus))
 }
 
-func (a *API) getCustomer(w http.ResponseWriter, r *http.Request) {
-	c, err := a.svc.Customers.Get(r.Context(), r.PathValue("id"))
+func (a *API) getCustomer(c *gin.Context) {
+	cus, err := a.svc.Customers.Get(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toCustomerView(c))
+	writeJSON(c, http.StatusOK, toCustomerView(cus))
 }
 
-func (a *API) customerOrders(w http.ResponseWriter, r *http.Request) {
-	list, err := a.svc.Orders.ForCustomer(r.Context(), r.PathValue("id"))
+func (a *API) customerOrders(c *gin.Context) {
+	list, err := a.svc.Orders.ForCustomer(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
 	out := make([]orderView, 0, len(list))
 	for _, o := range list {
 		out = append(out, toOrderView(o))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"orders": out})
+	writeJSON(c, http.StatusOK, map[string]any{"orders": out})
 }
 
 // ───────────────────────── cart ─────────────────────────
@@ -363,93 +379,93 @@ type lineView struct {
 	Total     money.Satang `json:"total"`
 }
 
-func toCartView(c *cart.Cart) cartView {
-	lines := make([]lineView, 0, len(c.Lines))
-	for _, l := range c.Lines {
+func toCartView(crt *cart.Cart) cartView {
+	lines := make([]lineView, 0, len(crt.Lines))
+	for _, l := range crt.Lines {
 		lines = append(lines, lineView{l.ProductID, l.Name, l.UnitPrice, l.Qty, l.Total()})
 	}
-	return cartView{ID: c.ID, CustomerID: c.CustomerID, Lines: lines, ItemCount: c.ItemCount(), Total: c.Total()}
+	return cartView{ID: crt.ID, CustomerID: crt.CustomerID, Lines: lines, ItemCount: crt.ItemCount(), Total: crt.Total()}
 }
 
-func (a *API) openCart(w http.ResponseWriter, r *http.Request) {
+func (a *API) openCart(c *gin.Context) {
 	var body struct {
 		CustomerID string `json:"customer_id"`
 	}
-	if !decode(w, r, &body) {
+	if !bind(c, &body) {
 		return
 	}
-	c, err := a.svc.Carts.OpenFor(r.Context(), body.CustomerID)
+	crt, err := a.svc.Carts.OpenFor(c.Request.Context(), body.CustomerID)
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toCartView(c))
+	writeJSON(c, http.StatusCreated, toCartView(crt))
 }
 
-func (a *API) getCart(w http.ResponseWriter, r *http.Request) {
-	c, err := a.svc.Carts.Get(r.Context(), r.PathValue("id"))
+func (a *API) getCart(c *gin.Context) {
+	crt, err := a.svc.Carts.Get(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toCartView(c))
+	writeJSON(c, http.StatusOK, toCartView(crt))
 }
 
-func (a *API) addCartItem(w http.ResponseWriter, r *http.Request) {
+func (a *API) addCartItem(c *gin.Context) {
 	var body struct {
 		ProductID string `json:"product_id"`
 		Qty       int    `json:"qty"`
 	}
-	if !decode(w, r, &body) {
+	if !bind(c, &body) {
 		return
 	}
-	c, err := a.svc.Carts.AddItem(r.Context(), r.PathValue("id"), body.ProductID, body.Qty)
+	crt, err := a.svc.Carts.AddItem(c.Request.Context(), c.Param("id"), body.ProductID, body.Qty)
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toCartView(c))
+	writeJSON(c, http.StatusOK, toCartView(crt))
 }
 
-func (a *API) setCartQty(w http.ResponseWriter, r *http.Request) {
+func (a *API) setCartQty(c *gin.Context) {
 	var body struct {
 		Qty int `json:"qty"`
 	}
-	if !decode(w, r, &body) {
+	if !bind(c, &body) {
 		return
 	}
-	c, err := a.svc.Carts.SetQty(r.Context(), r.PathValue("id"), r.PathValue("productID"), body.Qty)
+	crt, err := a.svc.Carts.SetQty(c.Request.Context(), c.Param("id"), c.Param("productID"), body.Qty)
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toCartView(c))
+	writeJSON(c, http.StatusOK, toCartView(crt))
 }
 
-func (a *API) removeCartItem(w http.ResponseWriter, r *http.Request) {
-	c, err := a.svc.Carts.RemoveItem(r.Context(), r.PathValue("id"), r.PathValue("productID"))
+func (a *API) removeCartItem(c *gin.Context) {
+	crt, err := a.svc.Carts.RemoveItem(c.Request.Context(), c.Param("id"), c.Param("productID"))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toCartView(c))
+	writeJSON(c, http.StatusOK, toCartView(crt))
 }
 
 // ───────────────────────── checkout ─────────────────────────
 
-func (a *API) submitCheckout(w http.ResponseWriter, r *http.Request) {
+func (a *API) submitCheckout(c *gin.Context) {
 	var body struct {
 		ExpectedSatang int64 `json:"expected_satang"`
 		PayNow         bool  `json:"pay_now"`
 	}
-	if r.ContentLength > 0 && !decode(w, r, &body) {
+	if c.Request.ContentLength > 0 && !bind(c, &body) {
 		return
 	}
-	receipt, err := a.svc.Checkout.Submit(r.Context(), r.PathValue("id"), money.FromSatang(body.ExpectedSatang), body.PayNow)
+	receipt, err := a.svc.Checkout.Submit(c.Request.Context(), c.Param("id"), money.FromSatang(body.ExpectedSatang), body.PayNow)
 	if err != nil {
 		// ออเดอร์อาจถูกสร้างแล้วแต่จ่ายไม่ผ่าน — ส่ง receipt กลับไปด้วยเพื่อให้จ่ายซ้ำได้
 		if receipt != nil {
-			writeJSON(w, http.StatusAccepted, map[string]any{
+			writeJSON(c, http.StatusAccepted, map[string]any{
 				"order_id": receipt.OrderID,
 				"total":    receipt.Total,
 				"paid":     receipt.Paid,
@@ -457,10 +473,10 @@ func (a *API) submitCheckout(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	writeJSON(c, http.StatusCreated, map[string]any{
 		"order_id": receipt.OrderID,
 		"total":    receipt.Total,
 		"paid":     receipt.Paid,
@@ -494,63 +510,63 @@ func toOrderView(o *order.Order) orderView {
 	}
 }
 
-func (a *API) listOrders(w http.ResponseWriter, r *http.Request) {
-	list, err := a.svc.Orders.List(r.Context(), order.Status(r.URL.Query().Get("status")))
+func (a *API) listOrders(c *gin.Context) {
+	list, err := a.svc.Orders.List(c.Request.Context(), order.Status(c.Query("status")))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
 	out := make([]orderView, 0, len(list))
 	for _, o := range list {
 		out = append(out, toOrderView(o))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"orders": out})
+	writeJSON(c, http.StatusOK, map[string]any{"orders": out})
 }
 
-func (a *API) getOrder(w http.ResponseWriter, r *http.Request) {
-	o, err := a.svc.Orders.Get(r.Context(), r.PathValue("id"))
+func (a *API) getOrder(c *gin.Context) {
+	o, err := a.svc.Orders.Get(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toOrderView(o))
+	writeJSON(c, http.StatusOK, toOrderView(o))
 }
 
-func (a *API) payOrder(w http.ResponseWriter, r *http.Request) {
-	a.transition(w, r, a.svc.Orders.Pay)
+func (a *API) payOrder(c *gin.Context) {
+	a.transition(c, a.svc.Orders.Pay)
 }
 
-func (a *API) prepareOrder(w http.ResponseWriter, r *http.Request) {
-	a.transition(w, r, a.svc.Orders.StartPreparing)
+func (a *API) prepareOrder(c *gin.Context) {
+	a.transition(c, a.svc.Orders.StartPreparing)
 }
 
-func (a *API) deliverOrder(w http.ResponseWriter, r *http.Request) {
-	a.transition(w, r, a.svc.Orders.Deliver)
+func (a *API) deliverOrder(c *gin.Context) {
+	a.transition(c, a.svc.Orders.Deliver)
 }
 
-func (a *API) cancelOrder(w http.ResponseWriter, r *http.Request) {
-	a.transition(w, r, a.svc.Orders.Cancel)
+func (a *API) cancelOrder(c *gin.Context) {
+	a.transition(c, a.svc.Orders.Cancel)
 }
 
-func (a *API) shipOrder(w http.ResponseWriter, r *http.Request) {
+func (a *API) shipOrder(c *gin.Context) {
 	var body struct {
 		Tracking string `json:"tracking"`
 	}
-	if !decode(w, r, &body) {
+	if !bind(c, &body) {
 		return
 	}
-	o, err := a.svc.Orders.Ship(r.Context(), r.PathValue("id"), body.Tracking)
+	o, err := a.svc.Orders.Ship(c.Request.Context(), c.Param("id"), body.Tracking)
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toOrderView(o))
+	writeJSON(c, http.StatusOK, toOrderView(o))
 }
 
-func (a *API) orderPayments(w http.ResponseWriter, r *http.Request) {
-	list, err := a.svc.Payments.ForOrder(r.Context(), r.PathValue("id"))
+func (a *API) orderPayments(c *gin.Context) {
+	list, err := a.svc.Payments.ForOrder(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
 	out := make([]map[string]any, 0, len(list))
@@ -560,17 +576,17 @@ func (a *API) orderPayments(w http.ResponseWriter, r *http.Request) {
 			"status": p.Status, "reference": p.Reference, "reason": p.Reason,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"payments": out})
+	writeJSON(c, http.StatusOK, map[string]any{"payments": out})
 }
 
 // transition ใช้ซ้ำสำหรับทุก endpoint ที่แค่เลื่อนสถานะ
-func (a *API) transition(w http.ResponseWriter, r *http.Request, fn func(ctx contextT, id string) (*order.Order, error)) {
-	o, err := fn(r.Context(), r.PathValue("id"))
+func (a *API) transition(c *gin.Context, fn func(ctx contextT, id string) (*order.Order, error)) {
+	o, err := fn(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		a.fail(w, err)
+		a.fail(c, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toOrderView(o))
+	writeJSON(c, http.StatusOK, toOrderView(o))
 }
 
 // ───────────────────────── error mapping ─────────────────────────
@@ -579,18 +595,18 @@ func (a *API) transition(w http.ResponseWriter, r *http.Request, fn func(ctx con
 //
 // 🔑 นี่คือจุดเดียวที่ HTTP กับ domain มาเจอกัน — domain ไม่รู้จักเลข 404/409
 // ถ้าวันหนึ่งเปลี่ยนไปเป็น gRPC ก็มาเขียนตารางแปลงใหม่ที่ adapter ตัวนั้น
-func (a *API) fail(w http.ResponseWriter, err error) {
+func (a *API) fail(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, catalog.ErrNotFound),
 		errors.Is(err, customer.ErrNotFound),
 		errors.Is(err, cart.ErrNotFound),
 		errors.Is(err, order.ErrNotFound),
 		errors.Is(err, payment.ErrNotFound):
-		writeErr(w, http.StatusNotFound, err.Error())
+		writeErr(c, http.StatusNotFound, err.Error())
 
 	case errors.Is(err, catalog.ErrDuplicateSKU),
 		errors.Is(err, customer.ErrDuplicate):
-		writeErr(w, http.StatusConflict, err.Error())
+		writeErr(c, http.StatusConflict, err.Error())
 
 	case errors.Is(err, order.ErrBadTransition),
 		errors.Is(err, order.ErrCannotCancel),
@@ -598,7 +614,7 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 		errors.Is(err, payment.ErrNotPending),
 		errors.Is(err, payment.ErrNotRefundable),
 		errors.Is(err, checkout.ErrMismatch):
-		writeErr(w, http.StatusConflict, err.Error())
+		writeErr(c, http.StatusConflict, err.Error())
 
 	case errors.Is(err, catalog.ErrOutOfStock),
 		errors.Is(err, catalog.ErrInactive),
@@ -606,7 +622,7 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 		errors.Is(err, customer.ErrSuspended),
 		errors.Is(err, customer.ErrCreditTooLow),
 		errors.Is(err, payment.ErrDeclined):
-		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		writeErr(c, http.StatusUnprocessableEntity, err.Error())
 
 	case errors.Is(err, catalog.ErrInvalidName),
 		errors.Is(err, catalog.ErrInvalidPrice),
@@ -623,10 +639,10 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 		errors.Is(err, payment.ErrInvalidAmount),
 		errors.Is(err, checkout.ErrEmptyCart),
 		errors.Is(err, money.ErrNegative):
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(c, http.StatusBadRequest, err.Error())
 
 	default:
 		a.log.Error("unhandled error", "err", err)
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		writeErr(c, http.StatusInternalServerError, "internal error")
 	}
 }

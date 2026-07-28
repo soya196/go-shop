@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 // openapiSpec ถูกฝังลงไบนารีตอน build
@@ -70,26 +72,24 @@ window.addEventListener('load', function () {
 // mountDocs ติดตั้ง endpoint เอกสาร
 //
 // แยกออกจากตาราง routes เพราะไม่ใช่ API ของธุรกิจ — และปิดได้ด้วย config
-func (a *API) mountDocs(mux *http.ServeMux) {
+func (a *API) mountDocs(r *gin.Engine) {
 	if !a.cfg.DocsEnabled {
 		return
 	}
-	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(openapiSpec)
+	r.GET("/openapi.json", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.Data(http.StatusOK, "application/json; charset=utf-8", openapiSpec)
 	})
-	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(swaggerUI))
+	r.GET("/docs", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(swaggerUI))
 	})
 	// เผื่อคนพิมพ์ /docs/ ติดสแลช
-	mux.HandleFunc("GET /docs/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/docs", http.StatusMovedPermanently)
+	r.GET("/docs/", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/docs")
 	})
 	// เปิดหน้าแรกแล้วเจอเอกสารเลย ดีกว่าเจอ 404
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/docs", http.StatusFound)
+	r.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/docs")
 	})
 }
 
