@@ -60,7 +60,7 @@ func (s Satang) String() string {
 	}
 	sb.WriteString("฿")
 	sb.WriteString(group(baht))
-	sb.WriteString(fmt.Sprintf(".%02d", st))
+	fmt.Fprintf(&sb, ".%02d", st)
 	return sb.String()
 }
 

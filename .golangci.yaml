@@ -1,0 +1,87 @@
+version: "2"
+
+# ─────────────────────────────────────────────────────────────────
+# ปรัชญาของไฟล์นี้ตรงกับ cmd/archlint:
+#   "กฎที่ตรวจได้ อย่าปล่อยให้เป็นแค่ความหวัง"
+#
+#   archlint      = บังคับ "สถาปัตยกรรม" (ใครรู้จักใครได้บ้าง)
+#   golangci-lint = บังคับ "คุณภาพโค้ด"  (bug pattern, resource leak, ความซับซ้อน)
+#
+# ทุก exclusion ในไฟล์นี้ต้องมีเหตุผลเขียนกำกับ — ไม่มีการปิดตาเฉยๆ
+# ─────────────────────────────────────────────────────────────────
+
+linters:
+  enable:
+    # ── ดัก bug จริง ──
+    - bodyclose      # ลืม resp.Body.Close() → fd รั่ว
+    - rowserrcheck   # ลืมเช็ค rows.Err() → แถวหายเงียบๆ
+    - sqlclosecheck  # ลืมปิด *sql.Rows → connection pool ตัน
+    - nilerr         # return nil ทั้งที่ err != nil
+    - errorlint      # เทียบ error ด้วย == แทน errors.Is
+    # ── ความปลอดภัย ──
+    - gosec
+    # ── ความซับซ้อน (อ่านไม่ออก = ที่ซ่อนบั๊ก) ──
+    - funlen
+    - gocognit
+    - gocyclo
+    - nestif
+    # ── ความสะอาด ──
+    - gocritic
+    - unparam        # พารามิเตอร์/ผลลัพธ์ที่ไม่มีใครใช้ = API เคยเปลี่ยนแล้วลืมเก็บ
+    - wastedassign
+    - whitespace
+    - predeclared    # ตั้งชื่อทับ builtin (len, cap, new, ...)
+    # ── นโยบาย ──
+    - forbidigo      # กัน fmt.Println หลุดขึ้น production
+    - gomodguard_v2
+
+  settings:
+    funlen:
+      lines: 120
+      statements: 60
+      ignore-comments: true
+    gocognit:
+      min-complexity: 25
+    gocyclo:
+      min-complexity: 20
+    gosec:
+      excludes:
+        # G115 (integer overflow ตอน convert) — โปรเจกต์นี้แปลง int ↔ int32
+        # ระหว่าง domain กับคอลัมน์ INTEGER ของ postgres ตลอด ค่าที่เป็นไปได้
+        # (จำนวนสินค้า/ลำดับบรรทัด) ไม่มีทางเกิน int32 · กฎ CHECK ใน migration กันอีกชั้น
+        - G115
+    gomodguard_v2:
+      blocked:
+        - module: github.com/pkg/errors
+          recommendations: [errors]
+          reason: "stdlib errors + fmt.Errorf(%w) พอแล้วตั้งแต่ Go 1.13"
+        - module: github.com/satori/go.uuid
+          recommendations: [github.com/google/uuid]
+          reason: "ไม่ได้ maintain แล้ว"
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      # โค้ดที่ sqlc สร้าง — ห้ามแก้ด้วยมือ จึงบังคับสไตล์ไม่ได้
+      - path: internal/pgstore/gen/
+        linters: [gocritic, unparam, gosec, funlen, gocognit, gocyclo, whitespace, nilerr, errorlint]
+
+      # cmd/ เป็น CLI — การพิมพ์ออก stdout คือหน้าที่ของมัน ไม่ใช่ debug print ที่หลุดมา
+      - path: ^cmd/
+        linters: [forbidigo]
+
+      # ไฟล์เทส: ยาวและซับซ้อนได้ ถ้ามันทำให้เคสอ่านง่ายขึ้น
+      - path: _test\.go
+        linters: [funlen, gocognit, gocyclo, gosec, bodyclose, unparam, errorlint]
+
+issues:
+  max-same-issues: 50
+
+formatters:
+  enable:
+    - gofmt

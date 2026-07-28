@@ -121,7 +121,8 @@ func (t *table[T]) flushLocked() error {
 		return fmt.Errorf("jsonstore: encode %s: %w", t.path, err)
 	}
 	tmp := t.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+	// 0600 = เจ้าของอ่าน/เขียนได้คนเดียว — ไฟล์นี้มีอีเมลลูกค้าและประวัติการสั่งซื้อ
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return fmt.Errorf("jsonstore: write %s: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, t.path); err != nil {

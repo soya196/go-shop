@@ -45,7 +45,7 @@ func (s *Service) Collect(ctx context.Context, orderID string, amount money.Sata
 		if saveErr := s.repo.Save(ctx, p); saveErr != nil {
 			return nil, saveErr
 		}
-		return p, fmt.Errorf("%w: %v", ErrDeclined, err)
+		return p, fmt.Errorf("%w: %w", ErrDeclined, err)
 	}
 
 	if !charge.Approved {

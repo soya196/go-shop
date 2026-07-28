@@ -17,6 +17,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -74,7 +75,7 @@ func main() {
 	layerOf := buildLayerIndex(cfg)
 	violations := check(cfg, pkgs, layerOf, *verbose)
 
-	report(cfg, pkgs, layerOf, violations, *verbose)
+	report(cfg, pkgs, layerOf, violations)
 	if len(violations) > 0 {
 		os.Exit(1)
 	}
@@ -127,11 +128,8 @@ func listPackages() ([]pkg, error) {
 }
 
 func asExitError(err error, target **exec.ExitError) bool {
-	if ee, ok := err.(*exec.ExitError); ok {
-		*target = ee
-		return true
-	}
-	return false
+	// ใช้ errors.As ไม่ใช่ type assertion — assertion ตรงๆ จะพลาดถ้า error ถูก wrap
+	return errors.As(err, target)
 }
 
 // buildLayerIndex map: import path เต็ม → ชื่อ layer
@@ -154,105 +152,171 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-func check(cfg *config, pkgs []pkg, layerOf map[string]string, verbose bool) []violation {
-	var vs []violation
+// ═══════════════════════════════════════════════════════════════════
+// เครื่องยนต์ตรวจกฎ
+//
+// ออกแบบให้ "เพิ่มกฎใหม่ = เพิ่มฟังก์ชัน 1 ตัว แล้วใส่ในตาราง"
+// ไม่ใช่ไปแทรก if ในฟังก์ชันยักษ์ — เพราะ archlint ตั้งใจจะแยกออกไปเป็น
+// เครื่องมือของตัวเองที่ใช้กับโปรเจกต์ Go อื่นได้
+// ═══════════════════════════════════════════════════════════════════
 
-	shared := map[string]bool{}
+// ruleCtx คือของที่ทุกกฎต้องใช้ร่วมกัน (คำนวณครั้งเดียวตอนเริ่ม)
+type ruleCtx struct {
+	cfg          *config
+	layerOf      map[string]string
+	shared       map[string]bool
+	allowedCross map[string]bool
+}
+
+func newRuleCtx(cfg *config, layerOf map[string]string) *ruleCtx {
+	rc := &ruleCtx{
+		cfg:          cfg,
+		layerOf:      layerOf,
+		shared:       map[string]bool{},
+		allowedCross: map[string]bool{},
+	}
 	for _, s := range cfg.Rules.SharedKernel {
-		shared[path.Join(cfg.Module, s)] = true
+		rc.shared[path.Join(cfg.Module, s)] = true
 	}
-	allowedCross := map[string]bool{}
 	for _, s := range cfg.Rules.AllowedCrossDomain {
-		allowedCross[s] = true
+		rc.allowedCross[s] = true
 	}
+	return rc
+}
+
+// edge คือ "package หนึ่ง import อีก package หนึ่ง" — หน่วยที่กฎส่วนใหญ่ตรวจ
+type edge struct {
+	from     pkg
+	to       string
+	fromName string // ชื่อสั้นของ from
+	toName   string // ชื่อสั้นของ to
+	isOwn    bool   // to อยู่ใน module เดียวกันไหม
+	toLayer  string
+}
+
+// importRule ตรวจ edge หนึ่งเส้น · คืน nil ถ้าผ่าน
+type importRule struct {
+	layer string // ใช้กับ package ชั้นไหน
+	fn    func(rc *ruleCtx, e edge) *violation
+}
+
+// importRules คือทะเบียนกฎทั้งหมด — อ่านตารางนี้ = รู้ว่า archlint บังคับอะไรบ้าง
+var importRules = []importRule{
+	{"domain", ruleDomainImportsLayer},
+	{"domain", ruleCrossDomain},
+	{"domain", ruleDomainThirdParty},
+	{"domain", ruleDomainStdlibDenyList},
+	{"adapter", ruleAdapterImportsLayer},
+}
+
+// ลูกศรพึ่งพาต้องชี้เข้าหา domain เท่านั้น
+func ruleDomainImportsLayer(rc *ruleCtx, e edge) *violation {
+	if !e.isOwn || !contains(rc.cfg.Rules.DomainMustNotImportLayers, e.toLayer) {
+		return nil
+	}
+	return &violation{
+		Rule: "domain-imports-" + e.toLayer,
+		From: e.fromName, To: e.toName,
+		Why: "ลูกศรพึ่งพาต้องชี้เข้าหา domain เท่านั้น (Dependency Rule)",
+	}
+}
+
+// domain ต้องไม่รู้จัก domain อื่นตรงๆ (ยกเว้น shared kernel)
+func ruleCrossDomain(rc *ruleCtx, e edge) *violation {
+	if !e.isOwn || e.toLayer != "domain" || e.to == e.from.ImportPath || rc.shared[e.to] {
+		return nil
+	}
+	if rc.allowedCross[e.fromName+" -> "+e.toName] {
+		return nil
+	}
+	return &violation{
+		Rule: "cross-domain-import",
+		From: e.fromName, To: e.toName,
+		Why: "domain ต้องคุยกันผ่าน port ที่ตัวเองประกาศ + bridge ไม่ใช่ import ตรง",
+	}
+}
+
+// domain ต้องไม่ผูกกับ library ภายนอก
+func ruleDomainThirdParty(rc *ruleCtx, e edge) *violation {
+	if e.isOwn || !rc.cfg.Rules.DomainMustNotImportThird || !isThirdParty(e.to) {
+		return nil
+	}
+	return &violation{
+		Rule: "domain-imports-third-party",
+		From: e.fromName, To: e.to,
+		Why: "domain ต้องไม่ผูกกับ library ภายนอก (Framework Independent)",
+	}
+}
+
+// domain ต้องไม่แตะ stdlib ที่เป็นเรื่อง infrastructure
+func ruleDomainStdlibDenyList(rc *ruleCtx, e edge) *violation {
+	if e.isOwn || !contains(rc.cfg.Rules.DomainStdlibDenyList, e.to) {
+		return nil
+	}
+	return &violation{
+		Rule: "domain-imports-infrastructure",
+		From: e.fromName, To: e.to,
+		Why: "เป็นเรื่องของโลกภายนอก ควรอยู่ใน adapter",
+	}
+}
+
+// adapter ต้องไม่รู้จักจุดประกอบร่าง
+func ruleAdapterImportsLayer(rc *ruleCtx, e edge) *violation {
+	if !e.isOwn || !contains(rc.cfg.Rules.AdapterMustNotImportLayers, e.toLayer) {
+		return nil
+	}
+	return &violation{
+		Rule: "adapter-imports-" + e.toLayer,
+		From: e.fromName, To: e.toName,
+		Why: "adapter ต้องไม่รู้จักจุดประกอบร่าง",
+	}
+}
+
+// ── กฎระดับ package (ไม่ได้ดู import) ────────────────────────────
+
+// ชื่อ package ต้องไม่เป็นคำเทคนิคกลวงๆ
+func rulePackageName(rc *ruleCtx, p pkg) *violation {
+	if !contains(rc.cfg.Rules.BannedPackageNames, p.Name) {
+		return nil
+	}
+	return &violation{
+		Rule: "banned-package-name",
+		From: short(rc.cfg.Module, p.ImportPath), To: p.Name,
+		Why: "ชื่อ package บอกแค่ 'เทคนิค' ไม่ได้บอกว่าธุรกิจทำอะไร (Screaming Architecture)",
+	}
+}
+
+// package ที่ไม่ได้อยู่ layer ไหนเลย = ลืมประกาศใน arch.json
+func ruleClassified(rc *ruleCtx, p pkg) *violation {
+	if rc.layerOf[p.ImportPath] != "" {
+		return nil
+	}
+	return &violation{
+		Rule: "unclassified-package",
+		From: short(rc.cfg.Module, p.ImportPath), To: "-",
+		Why: "ยังไม่ได้ระบุ layer ใน arch.json — package ใหม่ต้องประกาศว่าเป็น domain หรือ adapter",
+	}
+}
+
+// check เดินทุก package แล้วยิงกฎทุกข้อใส่
+func check(cfg *config, pkgs []pkg, layerOf map[string]string, verbose bool) []violation {
+	rc := newRuleCtx(cfg, layerOf)
+	var vs []violation
 
 	for _, p := range pkgs {
 		if p.Standard {
 			continue
 		}
-		layer := layerOf[p.ImportPath]
+		vs = appendIf(vs, rulePackageName(rc, p))
 
-		// ── กฎ: ชื่อ package ต้องไม่เป็นคำเทคนิคกลวงๆ (Screaming) ──
-		if contains(cfg.Rules.BannedPackageNames, p.Name) {
-			vs = append(vs, violation{
-				Rule: "banned-package-name",
-				From: short(cfg.Module, p.ImportPath),
-				To:   p.Name,
-				Why:  "ชื่อ package บอกแค่ 'เทคนิค' ไม่ได้บอกว่าธุรกิจทำอะไร (Screaming Architecture)",
-			})
+		if v := ruleClassified(rc, p); v != nil {
+			vs = append(vs, *v)
+			continue // ไม่รู้ว่าอยู่ชั้นไหน ก็ตรวจ import ต่อไม่ได้
 		}
-
-		// ── package ที่ไม่ได้อยู่ใน layer ไหนเลย = ลืมประกาศใน arch.json ──
-		if layer == "" {
-			vs = append(vs, violation{
-				Rule: "unclassified-package",
-				From: short(cfg.Module, p.ImportPath),
-				To:   "-",
-				Why:  "ยังไม่ได้ระบุ layer ใน arch.json — package ใหม่ต้องประกาศว่าเป็น domain หรือ adapter",
-			})
-			continue
-		}
-
-		for _, imp := range p.Imports {
-			isOwn := strings.HasPrefix(imp, cfg.Module+"/") || imp == cfg.Module
-			impLayer := layerOf[imp]
-
-			switch layer {
-			case "domain":
-				// domain ห้าม import layer ที่กำหนด
-				if isOwn && contains(cfg.Rules.DomainMustNotImportLayers, impLayer) {
-					vs = append(vs, violation{
-						Rule: "domain-imports-" + impLayer,
-						From: short(cfg.Module, p.ImportPath),
-						To:   short(cfg.Module, imp),
-						Why:  "ลูกศรพึ่งพาต้องชี้เข้าหา domain เท่านั้น (Dependency Rule)",
-					})
-				}
-				// domain ห้ามรู้จัก domain อื่น (ยกเว้น shared kernel)
-				if isOwn && impLayer == "domain" && imp != p.ImportPath && !shared[imp] {
-					key := short(cfg.Module, p.ImportPath) + " -> " + short(cfg.Module, imp)
-					if !allowedCross[key] {
-						vs = append(vs, violation{
-							Rule: "cross-domain-import",
-							From: short(cfg.Module, p.ImportPath),
-							To:   short(cfg.Module, imp),
-							Why:  "domain ต้องคุยกันผ่าน port ที่ตัวเองประกาศ + bridge ไม่ใช่ import ตรง",
-						})
-					}
-				}
-				// domain ห้ามพึ่ง library ภายนอก
-				if !isOwn && cfg.Rules.DomainMustNotImportThird && isThirdParty(imp) {
-					vs = append(vs, violation{
-						Rule: "domain-imports-third-party",
-						From: short(cfg.Module, p.ImportPath),
-						To:   imp,
-						Why:  "domain ต้องไม่ผูกกับ library ภายนอก (Framework Independent)",
-					})
-				}
-				// domain ห้ามแตะ stdlib ที่เป็นเรื่อง infrastructure
-				if !isOwn && contains(cfg.Rules.DomainStdlibDenyList, imp) {
-					vs = append(vs, violation{
-						Rule: "domain-imports-infrastructure",
-						From: short(cfg.Module, p.ImportPath),
-						To:   imp,
-						Why:  "เป็นเรื่องของโลกภายนอก ควรอยู่ใน adapter",
-					})
-				}
-
-			case "adapter":
-				if isOwn && contains(cfg.Rules.AdapterMustNotImportLayers, impLayer) {
-					vs = append(vs, violation{
-						Rule: "adapter-imports-" + impLayer,
-						From: short(cfg.Module, p.ImportPath),
-						To:   short(cfg.Module, imp),
-						Why:  "adapter ต้องไม่รู้จักจุดประกอบร่าง",
-					})
-				}
-			}
-		}
+		vs = append(vs, rc.checkImports(p)...)
 
 		if verbose {
-			fmt.Printf("  %-12s %s\n", "["+layer+"]", short(cfg.Module, p.ImportPath))
+			fmt.Printf("  %-12s %s\n", "["+layerOf[p.ImportPath]+"]", short(cfg.Module, p.ImportPath))
 		}
 	}
 
@@ -263,6 +327,36 @@ func check(cfg *config, pkgs []pkg, layerOf map[string]string, verbose bool) []v
 		return vs[i].From < vs[j].From
 	})
 	return vs
+}
+
+// checkImports ยิงกฎระดับ edge ใส่ทุก import ของ package หนึ่ง
+func (rc *ruleCtx) checkImports(p pkg) []violation {
+	layer := rc.layerOf[p.ImportPath]
+	var vs []violation
+
+	for _, imp := range p.Imports {
+		e := edge{
+			from:     p,
+			to:       imp,
+			fromName: short(rc.cfg.Module, p.ImportPath),
+			toName:   short(rc.cfg.Module, imp),
+			isOwn:    strings.HasPrefix(imp, rc.cfg.Module+"/") || imp == rc.cfg.Module,
+			toLayer:  rc.layerOf[imp],
+		}
+		for _, r := range importRules {
+			if r.layer == layer {
+				vs = appendIf(vs, r.fn(rc, e))
+			}
+		}
+	}
+	return vs
+}
+
+func appendIf(vs []violation, v *violation) []violation {
+	if v == nil {
+		return vs
+	}
+	return append(vs, *v)
 }
 
 // isThirdParty เดาว่า import path เป็น library ภายนอกไหม
@@ -277,7 +371,7 @@ func short(module, p string) string {
 	return strings.TrimPrefix(strings.TrimPrefix(p, module), "/")
 }
 
-func report(cfg *config, pkgs []pkg, layerOf map[string]string, vs []violation, verbose bool) {
+func report(cfg *config, pkgs []pkg, layerOf map[string]string, vs []violation) {
 	counts := map[string]int{}
 	for _, p := range pkgs {
 		if !p.Standard {

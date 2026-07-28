@@ -2,12 +2,30 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
   pull_request:
 
 jobs:
   check:
     runs-on: ubuntu-latest
+
+    # เทสของ internal/pgstore ต้องใช้ PostgreSQL จริง
+    # ถ้าไม่มี service นี้ เทสจะ skip เอง (ไม่ fail) — แต่เราอยากให้ CI รันจริง
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: shop
+          POSTGRES_PASSWORD: shop
+          POSTGRES_DB: shop
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U shop -d shop"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+
+    env:
+      TEST_DATABASE_URL: postgres://shop:shop@localhost:5433/shop?sslmode=disable
+
     steps:
       - uses: actions/checkout@v4
 
@@ -30,6 +48,31 @@ jobs:
       # domain import adapter/framework เมื่อไหร่ → PR แดงทันที ไม่ต้องรอ reviewer จับ
       - name: archlint
         run: go run ./cmd/archlint
+
+      # ด่านคุณภาพโค้ด — คนละแกนกับ archlint
+      # archlint บังคับ "ใครรู้จักใครได้" · golangci บังคับ "เขียนยังไงถึงไม่พัง"
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12
+
+      # 🛡️ เซ็นเซอร์ที่ผลลัพธ์เปลี่ยนได้แม้โค้ดไม่เปลี่ยน
+      # CVE ใหม่ประกาศพรุ่งนี้ → CI แดงเอง โดยที่เราไม่ได้แตะอะไร
+      # ตรวจแบบ reachability: ฟ้องเฉพาะเมื่อโค้ดเราเรียกถึงฟังก์ชันที่มีช่องโหว่จริง
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: sqlc — ตรวจว่าโค้ดที่ generate ตรงกับ SQL
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+          sqlc generate
+          if [ -n "$(git status --porcelain internal/pgstore/gen)" ]; then
+            echo "❌ internal/pgstore/gen ไม่ตรงกับ queries/*.sql — ลืมรัน 'make generate' หรือแก้ไฟล์ gen ด้วยมือ"
+            git diff --stat internal/pgstore/gen
+            exit 1
+          fi
 
       - name: test
         run: go test -race -cover ./...
