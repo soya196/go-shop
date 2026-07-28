@@ -4,21 +4,49 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev)
 
-> **A production-shaped shopping API in Go with zero dependencies** — demonstrating that
-> Clean Architecture in Go means splitting packages by **domain**, not by **layer**,
-> plus a custom `archlint` tool that makes those rules fail the build.
-> *(Documentation below is in Thai — code and comments explain the key decisions.)*
+> **A production-ready shopping API in Go** — Clean Architecture where packages split by
+> **domain**, not by **layer**, with `archlint` making those rules fail the build.
+> Gin + PostgreSQL (sqlc/pgx) + JWT + OpenTelemetry — and a domain layer that
+> **has not changed a single line** across every one of those additions.
+> *(Documentation below is in Thai.)*
 
-**Reference implementation** ที่เอาแนวคิด Clean Architecture / Hexagonal มาทำเป็นโค้ดที่รันได้จริง
-พร้อม**เครื่องมือที่บังคับกฎเหล่านั้น** ไม่ให้พังเมื่อเวลาผ่านไป
+## 🌿 branch นี้คืออะไร
 
-**Zero dependency** — stdlib ล้วน ไม่มี gin/echo/gorm/wire เลยแม้แต่ตัวเดียว
-นั่นคือส่วนหนึ่งของการพิสูจน์: ถ้าโครงสร้างถูก คุณ**ไม่จำเป็นต้องมี framework**
+| branch | เป้าหมาย | dependency |
+|---|---|---|
+| `main` | **พิสูจน์ว่าไม่ต้องมี framework ก็ได้** — stdlib ล้วน | **0** |
+| `feat/production-stack` ← *อยู่ตรงนี้* | **เอาไปขึ้น prod ได้จริง** | ~79 module |
+
+ทั้งสอง branch ใช้ **`internal/<domain>/` ชุดเดียวกัน** — เปลี่ยนทั้ง web framework และ
+ฐานข้อมูลแล้ว **domain ไม่ถูกแก้เลยแม้แต่บรรทัดเดียว** นั่นคือหลักฐานว่า boundary ใช้ได้จริง
+ไม่ใช่แค่คำพูดในสไลด์
+
+### stack ของ branch นี้
+
+| ชั้น | ใช้อะไร | ทำไม |
+|---|---|---|
+| Web | **gin** v1.12 | binding + validator ติดมาด้วย · ทีมส่วนใหญ่คุ้นเคย |
+| DB | **PostgreSQL** + pgx/v5 | transaction จริง · `FOR UPDATE`-style atomic ที่แก้ oversell ได้ |
+| Query | **sqlc** v1.31 | เขียน SQL เอง → generate Go ที่ type-safe · **เช็ค SQL กับ schema ตอน generate** |
+| Migration | **goose** + `go:embed` | binary กับ schema เดินทางไปด้วยกัน |
+| Auth | **JWT** (HS256) | 401/403 แยกชัด · ตาราง route บอกสิทธิ์ในคอลัมน์แรก |
+| Observability | **OpenTelemetry** | trace เดียวเห็นตั้งแต่ HTTP ถึง SQL |
+| ยาม | **archlint** + golangci-lint + govulncheck | กฎที่ตรวจได้ ต้องทำให้ build แดง |
+
+> 🔑 **สิ่งที่ยังไม่เปลี่ยนเลยคือ `internal/<domain>/`** — gin อยู่ได้เฉพาะใน `httpapi`
+> pgx อยู่ได้เฉพาะใน `pgstore` · **archlint บังคับไว้** ลองแทรก `import gin` เข้า
+> `internal/order` แล้วรัน `make arch` ดูได้
 
 ```bash
-make run        # รันที่ :8080 พร้อมข้อมูลตัวอย่าง
+make tools      # ติดตั้ง sqlc, goose, golangci-lint, govulncheck (ครั้งเดียว)
+make db-up      # เปิด PostgreSQL ด้วย docker compose (พอร์ต 5433)
+make migrate    # สร้างตาราง
+make run-pg     # รันที่ :8080 ต่อ PostgreSQL
                 # → เปิด http://localhost:8080/docs = Swagger UI
-make check      # ประตูก่อน commit: archlint + vet + test + fmt
+
+make run        # หรือรันแบบ in-memory ไม่ต้องมี DB
+make run-trace  # รันพร้อมพิมพ์ trace ลงจอ (เห็น HTTP → SQL ในต้นเดียว)
+make check      # ประตูก่อน commit: arch + vet + lint + vuln + test + fmt
 make arch       # 💎 ตรวจกฎสถาปัตยกรรมอย่างเดียว
 make docker     # build image (archlint + test รันใน image build ด้วย)
 ```
@@ -366,18 +394,27 @@ HTTP 409  order: invalid status transition: PAID → SHIPPED
 
 ## 🚧 ยังไม่ได้ทำ (จงใจ — ไม่ใช่ลืม)
 
-ดูตารางเต็มใน [Infrastructure](#️-infrastructure--มีอะไรแล้ว-ยังขาดอะไร) · เรียงตามความสำคัญ:
+branch นี้ปิดหนี้ก้อนใหญ่ไปหลายอันแล้ว สิ่งที่เหลือคือ:
 
-1. **Concurrency บนสต็อก** ⚠️ — `Reserve` เป็น read-modify-write ไม่มี lock/optimistic version → ยิงพร้อมกันแรงๆ มีโอกาส oversell · **นี่คือหนี้ก้อนใหญ่สุด**
-2. **Auth / RBAC** — endpoint หลังร้านยังไม่มีการป้องกัน
-3. **Transaction** — `jsonstore` ไม่มี atomicity ข้าม repository · ต่อ Postgres จริงต้องมี `WithTransaction`
-4. **Idempotency key** ตอนจ่ายเงิน — ยิงซ้ำตอน network timeout อาจเก็บเงินสองรอบ
-5. **Metrics / tracing / rate limit / pagination**
+| ยังไม่มี | ทำไมถึงยังไม่ทำ |
+|---|---|
+| **Rate limiting** | ปกติทำที่ gateway/ingress ไม่ใช่ในแอป · ถ้าต้องทำในแอปควรใช้ redis ไม่ใช่ in-memory (หลาย pod) |
+| **Idempotency key** | จำเป็นจริงตอนมี client retry อัตโนมัติ · ต้องออกแบบ storage + TTL ให้ดีก่อน |
+| **Outbox / event** | ยังไม่มี service อื่นที่ต้องรู้ว่าเกิดออเดอร์ · ทำก่อนมีคนใช้ = เดา |
+| **Metrics (Prometheus)** | มี trace แล้ว · metric ควรมาพร้อมกับที่ที่จะเอาไปดู (Grafana) |
+| **`-store=memory/json` ไม่มี transaction** | ตั้งใจ — เป็น store สำหรับ dev เท่านั้น · `noTx` มี comment อธิบายไว้ชัด และมีเทสยืนยันว่าเกิดอะไรขึ้น |
+| **refresh token / logout** | token อายุสั้น + IdP ภายนอกจัดการเรื่องนี้ดีกว่าที่เราจะเขียนเอง |
 
-> จุดที่เป็น "หนี้เชิงออกแบบ" ผมคอมเมนต์ไว้ในโค้ดแล้ว เช่น `Service.releaseAll()` ใน `internal/order/service.go`
-> ที่จงใจกลืน error ของ compensating action — ระบบจริงต้องส่งเข้าคิว retry
+### ✅ หนี้ที่ปิดไปแล้วใน branch นี้
 
----
+| เคยเป็นปัญหา | ปิดยังไง |
+|---|---|
+| **oversell** — `Reserve` เป็น read-modify-write | ย้ายเงื่อนไขเข้าไปใน `UPDATE` เดียว · เทสยิง 100 goroutine พร้อมกันบนสต็อก 10 → สำเร็จ 10 พอดี |
+| **ไม่มี transaction** — `Place` ใช้ compensating action | port `order.TxManager` · เทสพิสูจน์ว่าถ้าไม่มี transaction จะเหลือ "ออเดอร์ผี" |
+| **ไม่มี auth** | JWT + สิทธิ์ตาม role · 11 เทสคุมไว้ (รวมช่องโหว่ `alg=none`) |
+| **ไม่มี distributed trace** | OpenTelemetry ที่ขอบทั้งสองด้าน |
+| **ไม่มี linter / CVE check** | golangci-lint 17 ตัว + govulncheck ใน CI (ครั้งแรกเจอ CVE ที่โค้ดเราเรียกถึงจริง 12 ตัว) |
+| **ไฟล์ข้อมูลเป็น 0644** | → `0600` (gosec จับได้) |
 
 ## 🔗 อ่านต่อ
 
