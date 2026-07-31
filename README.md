@@ -416,6 +416,22 @@ branch นี้ปิดหนี้ก้อนใหญ่ไปหลาย�
 | **ไม่มี linter / CVE check** | golangci-lint 17 ตัว + govulncheck ใน CI (ครั้งแรกเจอ CVE ที่โค้ดเราเรียกถึงจริง 12 ตัว) |
 | **ไฟล์ข้อมูลเป็น 0644** | → `0600` (gosec จับได้) |
 
+## 📄 แผนที่โค้ดแบบ interactive
+
+เปิด [`docs/architecture.html`](docs/architecture.html) ด้วย browser ได้เลย — ไฟล์เดียว ไม่ต้อง build
+
+| ส่วน | ตอบคำถามอะไร |
+|---|---|
+| 🔄 อะไรเปลี่ยน อะไรไม่เปลี่ยน | เปลี่ยนทั้ง framework และ DB แล้ว domain ต้องแก้กี่บรรทัด |
+| 📁 แผนที่ไฟล์ | คลิกดูทีละไฟล์ว่าอยู่ชั้นไหน ทำอะไร **ทำไมต้องอยู่ตรงนั้น** (41 รายการ) |
+| 🚦 เส้นทาง request | กดเดินทีละขั้น HTTP → ตรวจสิทธิ์ → use case → entity → SQL |
+| 🧅 ชั้น middleware | request ผ่านอะไรก่อนถึง handler |
+| 🔐 สิทธิ์ 3 ระดับ | endpoint ไหนเปิดสาธารณะ ไหนต้องล็อกอิน ไหนเฉพาะแอดมิน |
+| 🚨 error → HTTP status | domain error กลายเป็นเลขอะไร และทำไม |
+| 🛡️ กฎที่ archlint บังคับ | กฎไหนที่ `go build` จับไม่ได้ |
+
+> เอกสารเวอร์ชัน zero-dependency อยู่บน branch `main`
+
 ## 🔗 อ่านต่อ
 
 - **Clean Architecture** · **Screaming Architecture** — Robert C. Martin (Uncle Bob)

@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>go-shop — แผนที่โค้ด &amp; เส้นทางของ request</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f7f8fc; --card:#fff; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0;
+  --accent:#7c3aed; --accent2:#a78bfa;
+  --domain:#16a34a; --domain-bg:#f0fdf4; --domain-line:#bbf7d0;
+  --adapter:#2563eb; --adapter-bg:#eff6ff; --adapter-line:#bfdbfe;
+  --comp:#d97706; --comp-bg:#fffbeb; --comp-line:#fde68a;
+  --port:#db2777; --port-bg:#fdf2f8; --port-line:#fbcfe8;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Sarabun',system-ui,sans-serif;line-height:1.75;font-size:15.5px}
+code{font-family:var(--mono);font-size:.88em;background:#eef2ff;color:#4338ca;padding:1px 5px;border-radius:4px}
+
+/* ───── layout ───── */
+#nav{position:fixed;top:0;left:0;width:250px;height:100vh;background:#0f172a;color:#cbd5e1;overflow-y:auto;padding:20px 0;z-index:100;transition:transform .25s}
+#nav.hide{transform:translateX(-250px)}
+#nav .logo{padding:0 20px 16px;border-bottom:1px solid #1e293b;margin-bottom:12px}
+#nav .logo .t1{font-weight:700;color:#fff;font-size:1.05rem;letter-spacing:.3px}
+#nav .logo .t2{font-size:.76rem;color:#64748b;margin-top:3px}
+#nav a{display:block;padding:8px 20px;color:#94a3b8;text-decoration:none;font-size:.88rem;border-left:3px solid transparent}
+#nav a:hover{background:#1e293b;color:#e2e8f0}
+#nav a.active{background:#1e293b;color:#c4b5fd;border-left-color:var(--accent2)}
+#nav .foot{padding:16px 20px 0;font-size:.72rem;color:#475569;border-top:1px solid #1e293b;margin-top:14px}
+#menuToggle{position:fixed;top:12px;left:262px;z-index:101;background:#fff;border:1px solid var(--line);border-radius:8px;width:34px;height:34px;cursor:pointer;font-size:1rem;transition:left .25s}
+#menuToggle.shifted{left:12px}
+main{margin-left:250px;padding:36px 40px 90px;max-width:1080px;transition:margin-left .25s}
+main.wide{margin-left:0}
+@media(max-width:920px){#nav{transform:translateX(-250px)}#nav.show{transform:none}main{margin-left:0;padding:60px 18px}}
+
+h1{font-size:1.9rem;margin:0 0 6px;letter-spacing:-.4px}
+h2{font-size:1.35rem;margin:2.4em 0 .6em;padding-bottom:8px;border-bottom:2px solid var(--line)}
+h3{font-size:1.06rem;margin:1.8em 0 .5em;color:#334155}
+.sub{color:var(--muted);font-size:.94rem;margin:0 0 1.4em}
+section{scroll-margin-top:24px}
+.chip{display:inline-block;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:.72rem;font-weight:700;padding:2px 10px;border-radius:999px;vertical-align:middle;margin-right:7px}
+
+.note{border-left:4px solid var(--accent2);background:#faf5ff;padding:11px 15px;border-radius:0 9px 9px 0;margin:1.1em 0;font-size:.93rem}
+.note.warn{border-color:#f59e0b;background:#fffbeb}
+.note.ok{border-color:#22c55e;background:#f0fdf4}
+.note.key{border-color:#ec4899;background:#fdf2f8}
+
+table{width:100%;border-collapse:collapse;margin:1.1em 0;font-size:.9rem;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+th{background:#f1f5f9;text-align:left;padding:9px 12px;font-weight:700;font-size:.85rem;color:#475569}
+td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}
+
+/* ───── layer badges ───── */
+.lb{display:inline-block;font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.lb.domain{background:var(--domain-bg);color:var(--domain);border:1px solid var(--domain-line)}
+.lb.adapter{background:var(--adapter-bg);color:var(--adapter);border:1px solid var(--adapter-line)}
+.lb.comp{background:var(--comp-bg);color:var(--comp);border:1px solid var(--comp-line)}
+.lb.port{background:var(--port-bg);color:var(--port);border:1px solid var(--port-line)}
+
+/* ───── ภาพรวม 3 ชั้น ───── */
+.rings{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:1.3em 0}
+@media(max-width:760px){.rings{grid-template-columns:1fr}}
+.ring{border-radius:14px;padding:14px;border:2px solid}
+.ring.d{background:var(--domain-bg);border-color:var(--domain-line)}
+.ring.a{background:var(--adapter-bg);border-color:var(--adapter-line)}
+.ring.c{background:var(--comp-bg);border-color:var(--comp-line)}
+.ring h4{margin:0 0 4px;font-size:1rem}
+.ring .cap{font-size:.76rem;color:var(--muted);margin-bottom:9px}
+.ring .pk{background:#fff;border-radius:7px;padding:4px 9px;margin:4px 0;font:600 .78rem/1.5 var(--mono);border:1px solid rgba(0,0,0,.06)}
+.ring .rule{font-size:.76rem;margin-top:9px;padding-top:8px;border-top:1px dashed rgba(0,0,0,.12)}
+
+/* ───── file map ───── */
+.fmwrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;align-items:start;margin:1.2em 0}
+@media(max-width:900px){.fmwrap{grid-template-columns:1fr}}
+.ftree{background:#0f172a;border-radius:12px;padding:14px 10px;font:.78rem/1.95 var(--mono);max-height:640px;overflow:auto}
+.ftree .grp{color:#64748b;padding:6px 8px 2px;font-weight:600;letter-spacing:.4px}
+.ftree .f{display:flex;justify-content:space-between;gap:8px;color:#cbd5e1;padding:1px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;border-left:3px solid transparent}
+.ftree .f:hover{background:#1e293b}
+.ftree .f.on{background:rgba(167,139,250,.2);color:#fff;border-left-color:var(--accent2)}
+.ftree .f .ln{color:#475569;font-size:.9em}
+.ftree .f.dm{border-left-color:#16a34a}
+.ftree .f.ad{border-left-color:#3b82f6}
+.ftree .f.cp{border-left-color:#f59e0b}
+.ftree .f.dm.on,.ftree .f.ad.on,.ftree .f.cp.on{border-left-width:3px}
+.fdet{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;position:sticky;top:16px;min-height:300px}
+.fdet .ph{font:700 .95rem/1.5 var(--mono);color:#0f172a;word-break:break-all}
+.fdet .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0 12px}
+.fdet .role{font-weight:700;margin-bottom:4px}
+.fdet p{margin:.5em 0;font-size:.92rem}
+.fdet .imp{font:.76rem/1.7 var(--mono);color:var(--muted);background:#f8fafc;border-radius:8px;padding:8px 11px;margin-top:11px;word-break:break-word}
+.fdet .why{background:#fdf2f8;border-left:3px solid var(--port);border-radius:0 8px 8px 0;padding:9px 12px;margin-top:11px;font-size:.87rem}
+.fdet ul{margin:.4em 0;padding-left:20px;font-size:.9rem}
+
+/* ───── flow ───── */
+.ftabs{display:flex;gap:8px;flex-wrap:wrap;margin:1.2em 0 10px}
+.ftab{font:600 .86rem/1 'Sarabun',sans-serif;border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 15px;cursor:pointer;color:#475569}
+.ftab:hover{border-color:var(--accent2)}
+.ftab.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+
+.lanes{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:14px 0}
+.lane{border-radius:10px;padding:9px 6px;text-align:center;font-size:.74rem;font-weight:700;border:2px solid var(--line);background:#fff;color:#94a3b8;transition:.3s}
+.lane .ic{display:block;font-size:1.15rem;margin-bottom:2px;filter:grayscale(1);opacity:.45;transition:.3s}
+.lane.on{transform:translateY(-3px)}
+.lane.on .ic{filter:none;opacity:1}
+.lane.on.L1{border-color:#3b82f6;background:var(--adapter-bg);color:var(--adapter)}
+.lane.on.L2{border-color:#ec4899;background:var(--port-bg);color:var(--port)}
+.lane.on.L3{border-color:#16a34a;background:var(--domain-bg);color:var(--domain)}
+.lane.on.L4{border-color:#16a34a;background:var(--domain-bg);color:var(--domain)}
+.lane.on.L5{border-color:#3b82f6;background:var(--adapter-bg);color:var(--adapter)}
+
+.fctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.fbtn{font:600 .84rem 'Sarabun',sans-serif;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 14px;cursor:pointer;color:#334155}
+.fbtn:hover{border-color:var(--accent2);color:var(--accent)}
+.fbtn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none}
+.fpos{font-size:.82rem;font-weight:700;color:var(--accent)}
+.fhint{font-size:.75rem;color:var(--muted)}
+
+.fbody{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:16px;align-items:start}
+@media(max-width:900px){.fbody{grid-template-columns:1fr}}
+.fsteps{background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px;max-height:620px;overflow:auto}
+.fstep{display:flex;gap:9px;padding:7px 9px;border-radius:9px;cursor:pointer;align-items:flex-start;border-left:3px solid transparent}
+.fstep:hover{background:#f8fafc}
+.fstep.on{background:#faf5ff;border-left-color:var(--accent)}
+.fstep.done{opacity:.62}
+.fstep .n{flex:0 0 22px;height:22px;border-radius:50%;background:#e2e8f0;color:#475569;font:700 .72rem/22px var(--mono);text-align:center}
+.fstep.on .n{background:var(--accent);color:#fff}
+.fstep.done .n{background:#c7d2fe;color:#3730a3}
+.fstep .tx{font-size:.85rem;line-height:1.55}
+.fstep .tx b{display:block;font-size:.87rem}
+.fstep .tx small{color:var(--muted);font:.72rem var(--mono)}
+
+.fdetail{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;position:sticky;top:16px}
+.fdetail .hd{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.fdetail h4{margin:.2em 0 .3em;font-size:1.05rem}
+.fdetail .loc{font:.78rem var(--mono);color:var(--muted)}
+.fdetail p{font-size:.92rem;margin:.55em 0}
+pre{background:#0f172a;color:#e2e8f0;border-radius:10px;padding:13px 15px;overflow-x:auto;font:.79rem/1.7 var(--mono);margin:.8em 0}
+pre .k{color:#c4b5fd}pre .s{color:#86efac}pre .c{color:#64748b}pre .f{color:#93c5fd}pre .hl{background:rgba(167,139,250,.22);border-radius:4px;padding:0 3px}
+.fdetail .lesson{background:#f0fdf4;border-left:3px solid var(--domain);border-radius:0 8px 8px 0;padding:9px 12px;margin-top:11px;font-size:.87rem}
+.fdetail .warnx{background:#fffbeb;border-left:3px solid #f59e0b;border-radius:0 8px 8px 0;padding:9px 12px;margin-top:9px;font-size:.87rem}
+
+.mw{display:flex;flex-direction:column;gap:0;margin:1.1em 0}
+.mwl{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 14px;font-size:.88rem;margin-bottom:-1px}
+.mwl b{font-family:var(--mono);font-size:.85rem}
+.mwl .d{color:var(--muted);font-size:.82rem}
+.mwl.i0{margin-left:0}.mwl.i1{margin-left:22px}.mwl.i2{margin-left:44px}.mwl.i3{margin-left:66px}.mwl.i4{margin-left:88px}
+.mwl.core{background:var(--domain-bg);border-color:var(--domain-line)}
+
+footer{margin-top:3.5em;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:.82rem;text-align:center}
+</style>
+</head>
+<body>
+
+<button id="menuToggle" title="ซ่อน/แสดงเมนู">✕</button>
+<nav id="nav">
+  <div class="logo">
+    <div class="t1">🛒 go-shop</div>
+    <div class="t2">แผนที่โค้ด &amp; เส้นทาง request</div>
+  </div>
+  <a href="#overview">🗺️ ภาพรวม 3 ชั้น</a>
+  <a href="#stack">🔄 อะไรเปลี่ยน อะไรไม่เปลี่ยน</a>
+  <a href="#filemap">📁 แผนที่ไฟล์ (คลิกดู)</a>
+  <a href="#flow">🚦 เส้นทาง request (คลิกดู)</a>
+  <a href="#middleware">🧅 ชั้น middleware</a>
+  <a href="#auth">🔐 สิทธิ์ 3 ระดับ</a>
+  <a href="#errors">🚨 error → HTTP status</a>
+  <a href="#rules">🛡️ กฎที่ archlint บังคับ</a>
+  <div class="foot">branch <b>feat/production-stack</b><br>เอกสารสร้างโดย AI<br>อ่านจากโค้ดจริงในโปรเจกต์</div>
+</nav>
+
+<main>
+
+<section id="overview">
+  <h1>🛒 go-shop — แผนที่โค้ด <span class="chip" style="vertical-align:middle">production stack</span></h1>
+  <p class="sub">Shopping API ที่เขียนตามหลัก Clean Architecture แบบ <b>domain-first</b> · <b>gin + PostgreSQL + JWT + OpenTelemetry</b><br>
+  เอกสารนี้ตอบ 2 คำถาม: <b>“ไฟล์ไหนทำหน้าที่อะไร”</b> และ <b>“request เดินทางผ่านอะไรบ้างกว่าจะถึงที่เก็บข้อมูล”</b></p>
+
+  <div class="note warn">📍 <b>เอกสารนี้อธิบาย branch <code>feat/production-stack</code></b> — ถ้าอยากดูเวอร์ชัน
+  <b>zero-dependency</b> (stdlib ล้วน ไม่มี gin/pgx) ให้ดูเอกสารเดียวกันบน branch <code>main</code>
+  <br>โค้ด <code>internal/&lt;domain&gt;/</code> ของสอง branch <b>เกือบเหมือนกันทุกบรรทัด</b> — นั่นคือประเด็นทั้งหมดของเอกสารนี้</div>
+
+  <div class="note key">🔑 <b>กฎข้อเดียวที่ทำให้ทุกอย่างเข้าที่</b><br>
+  ลูกศรการพึ่งพา <b>ชี้เข้าด้านในเสมอ</b> — ชั้นนอกรู้จักชั้นใน แต่ชั้นในไม่รู้จักชั้นนอก<br>
+  แปลเป็นภาษาที่ตรวจได้: <code>internal/&lt;domain&gt;</code> ห้ามมีบรรทัด <code>import</code> ที่ชี้ไป adapter หรือ framework — <b>และมี <code>cmd/archlint</code> คอยบังคับ</b></div>
+
+  <div class="rings">
+    <div class="ring d">
+      <h4>💎 domain — 7 package</h4>
+      <div class="cap">กฎธุรกิจ · ไม่รู้จักโลกภายนอก</div>
+      <div class="pk">money</div>
+      <div class="pk">catalog · customer</div>
+      <div class="pk">cart · order · payment</div>
+      <div class="pk">checkout</div>
+      <div class="rule">✅ import ได้เฉพาะ <b>stdlib</b> + <code>money</code><br>❌ ห้าม <code>net/http</code>, ห้ามรู้จัก DB, ห้ามรู้จัก domain อื่น</div>
+    </div>
+    <div class="ring a">
+      <h4>🔌 adapter — 12 package</h4>
+      <div class="cap">ต่อ domain เข้ากับโลกจริง · สลับได้</div>
+      <div class="pk">httpapi <span style="color:#94a3b8">← ขาเข้า (gin)</span></div>
+      <div class="pk">pgstore · pgstore/gen <span style="color:#94a3b8">← PostgreSQL</span></div>
+      <div class="pk">memory · jsonstore <span style="color:#94a3b8">← ขาออก (dev)</span></div>
+      <div class="pk">migrations · token · tracing</div>
+      <div class="pk">clock · uid · fakepay</div>
+      <div class="pk">bridge <span style="color:#94a3b8">← domain ↔ domain</span></div>
+      <div class="rule">✅ import domain ได้ตรงๆ (ชั้นนอกเห็นชั้นใน) · <b>ใช้ lib ภายนอกได้</b> (gin, pgx, otel, jwt)<br>❌ domain ห้าม import กลับมา</div>
+    </div>
+    <div class="ring c">
+      <h4>🔧 composition — 4 package</h4>
+      <div class="cap">ประกอบร่าง · ที่เดียวที่รู้จักทุกคน</div>
+      <div class="pk">cmd/api</div>
+      <div class="pk">cmd/migrate · cmd/token</div>
+      <div class="pk">cmd/archlint</div>
+      <div class="rule">ที่เดียวในระบบที่ตัดสินใจว่า <b>“port ตัวไหนใช้ adapter ตัวไหน”</b> — เปลี่ยน DB = แก้ไฟล์นี้ไฟล์เดียว</div>
+    </div>
+  </div>
+
+  <h3>ตัวเลขจริงของโปรเจกต์</h3>
+  <table>
+    <thead><tr><th style="width:30%">อย่าง</th><th style="width:16%">จำนวน</th><th>หมายเหตุ</th></tr></thead>
+    <tbody>
+      <tr><td>ไฟล์ <code>.go</code></td><td><b>58</b></td><td>เขียนเอง 35 · เทส 16 · <b>sqlc generate ให้ 7</b></td></tr>
+      <tr><td>บรรทัดรวม</td><td><b>9,561</b></td><td>เขียนเอง 5,576 · เทส 3,123 · generate 862</td></tr>
+      <tr><td>dependency ที่ import ตรง</td><td><b>10</b></td><td>gin · pgx · goose · jwt · otel (5 ตัว) · otelpgx · otelgin</td></tr>
+      <tr><td>module ที่โค้ดใช้จริง</td><td><b>82</b></td><td>ส่วนใหญ่เป็นลูกโซ่ของ otel กับ gin — <code>go list -deps</code></td></tr>
+      <tr><td><b>domain ที่ import lib ภายนอก</b></td><td><b>0</b></td><td>💎 <b>ทั้ง gin/pgx/otel/jwt ไม่มีตัวไหนแตะ domain เลย</b> — archlint บังคับ</td></tr>
+      <tr><td>domain ที่ import domain อื่น</td><td><b>0</b></td><td>ทุกตัว import ได้แค่ <code>money</code> — พิสูจน์ด้วย <code>go list</code></td></tr>
+      <tr><td>endpoint</td><td><b>25</b></td><td>public 5 · ต้องล็อกอิน 12 · เฉพาะแอดมิน 8</td></tr>
+      <tr><td>บรรทัดใน domain ที่ต้องแก้<br>เพื่อรองรับทั้ง stack นี้</td><td><b>14</b></td><td>🔑 <code>order.TxManager</code> port อย่างเดียว — ที่เหลือไม่ขยับ</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">💡 <b>ทำไม <code>money</code> ถึง import ได้ทุกที่</b> — มันคือ <b>shared kernel</b>: type <code>Satang int64</code> ที่ทุก domain ต้องใช้พูดถึง “เงิน” ให้ตรงกัน
+  ถ้าไม่มีมัน แต่ละ domain จะประกาศ type เงินของตัวเอง แล้วต้องแปลงไปมาตลอดเวลา
+  <br><b>ราคาที่จ่าย</b>: <code>money</code> เปลี่ยนเมื่อไหร่ กระเทือนทุกคน → จึงต้อง<b>เล็กและนิ่งมาก</b> (108 บรรทัด ไม่มีกฎธุรกิจของใครเลย)</div>
+</section>
+
+<section id="stack">
+  <h2>🔄 อะไรเปลี่ยน อะไรไม่เปลี่ยน</h2>
+  <p class="sub">branch นี้เอาเวอร์ชัน stdlib ล้วนมา<b>ใส่ของจริงทั้ง stack</b> — เปลี่ยนทั้ง web framework และฐานข้อมูล
+  แล้ววัดว่า <b>domain ต้องแก้กี่บรรทัด</b></p>
+
+  <table>
+    <thead><tr><th style="width:20%">ชั้น</th><th style="width:26%">branch <code>main</code></th><th style="width:28%">branch นี้</th><th>domain ต้องแก้ไหม</th></tr></thead>
+    <tbody>
+      <tr><td>Web</td><td><code>net/http</code> + <code>ServeMux</code></td><td><b>gin</b> v1.12</td><td>❌ ไม่แก้เลย</td></tr>
+      <tr><td>ที่เก็บข้อมูล</td><td><code>memory</code> / <code>jsonstore</code></td><td><b>PostgreSQL</b> (pgx v5 + sqlc)</td><td>❌ ไม่แก้เลย</td></tr>
+      <tr><td>Migration</td><td>—</td><td><b>goose</b> + <code>go:embed</code></td><td>❌ ไม่แก้เลย</td></tr>
+      <tr><td>ยืนยันตัวตน</td><td>—</td><td><b>JWT</b> HS256 + role</td><td>❌ ไม่แก้เลย</td></tr>
+      <tr><td>Observability</td><td><code>slog</code></td><td><b>OpenTelemetry</b> (trace)</td><td>❌ ไม่แก้เลย</td></tr>
+      <tr><td><b>Transaction</b></td><td>compensating action</td><td><b>BEGIN/COMMIT จริง</b></td><td>✅ <b>แก้ 14 บรรทัด</b> — เพิ่ม port <code>TxManager</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note key">🔑 <b>ทำไม transaction เป็นตัวเดียวที่ domain ต้องรับรู้</b><br>
+  gin/pgx/otel/jwt เป็นเรื่องของ <b>“ทำยังไง”</b> — ซ่อนหลัง port ที่มีอยู่แล้วได้หมด<br>
+  แต่ <b>“งานกลุ่มนี้ต้องสำเร็จหรือล้มพร้อมกัน”</b> เป็นข้อกำหนดทาง<b>ธุรกิจ</b> ไม่ใช่รายละเอียดเทคนิค
+  — domain จึงต้องพูดออกมาเอง แค่พูดโดย<b>ไม่เอ่ยคำว่า SQL</b>
+  <pre style="margin:.6em 0"><span class="c">// internal/order/order.go — ทั้ง port มีแค่นี้</span>
+<span class="k">type</span> <span class="f">TxManager</span> <span class="k">interface</span> {
+  Do(ctx context.Context, fn <span class="k">func</span>(ctx context.Context) <span class="k">error</span>) <span class="k">error</span>
+}
+<span class="c">// ไม่มีคำว่า transaction / SQL / commit / rollback เลยสักคำ</span></pre></div>
+
+  <div class="note ok">✅ <b>หลักฐานที่วัดได้ ไม่ใช่คำโฆษณา</b>
+  <ul style="margin:.4em 0 0 1.1em">
+    <li>เทส HTTP เดิม <b>812 บรรทัด</b> ผ่านทั้งหมดตอนเปลี่ยนเป็น gin <b>โดยไม่แก้สักบรรทัด</b> — เพราะเทสยิงผ่าน <code>http.Handler</code> ไม่ได้ผูกกับ framework</li>
+    <li>เทส domain ทั้งหมดยังรันได้<b>โดยไม่ต้องมี PostgreSQL</b> — ใช้ <code>memory</code> เป็น adapter</li>
+    <li><code>go list -deps ./internal/order</code> ยัง<b>ไม่มี gin/pgx/otel โผล่</b> — archlint ทำให้ build แดงถ้ามี</li>
+  </ul></div>
+
+  <div class="note warn">⚠️ <b>ราคาที่จ่าย — ไม่ได้ฟรี</b><br>
+  dependency <b>0 → 10 ตัวที่ import ตรง</b> (ลากลูกโซ่มา <b>82 module</b>) · ไฟล์ <b>34 → 58</b> · เพิ่ม <code>docker compose</code> กับขั้นตอน migrate ก่อนรัน
+  <br>สิ่งที่ได้กลับมาคือ transaction จริง · ยิงพร้อมกันแล้วสต็อกไม่ติดลบ · trace ข้าม service · และสิทธิ์ที่ตรวจได้</div>
+</section>
+
+<section id="filemap">
+  <h2><span class="chip">ส่วนที่ 1</span> 📁 แผนที่ไฟล์ — คลิกดูทีละไฟล์</h2>
+  <p class="sub">คลิกชื่อไฟล์ทางซ้าย → ทางขวาบอกว่ามันอยู่ชั้นไหน ทำหน้าที่อะไร และ<b>ทำไมถึงต้องอยู่ตรงนั้น</b></p>
+  <div class="fmwrap">
+    <div class="ftree" id="ftree"></div>
+    <div class="fdet" id="fdet"></div>
+  </div>
+</section>
+
+<section id="flow">
+  <h2><span class="chip">ส่วนที่ 2</span> 🚦 เส้นทางของ request — คลิกเดินทีละขั้น</h2>
+  <p class="sub">ตั้งแต่ HTTP เข้ามา จนถึงที่เก็บข้อมูล แล้วกลับออกไปเป็น response · เลือกเส้นทางที่อยากดู แล้วกด <b>ถัดไป</b> หรือคลิกที่ขั้นไหนก็ได้</p>
+
+  <div class="ftabs" id="ftabs"></div>
+  <div class="lanes" id="lanes">
+    <div class="lane L1"><span class="ic">🌐</span>HTTP<br><small style="font-weight:400">adapter ขาเข้า</small></div>
+    <div class="lane L2"><span class="ic">🔌</span>Port<br><small style="font-weight:400">interface</small></div>
+    <div class="lane L3"><span class="ic">⚙️</span>Use case<br><small style="font-weight:400">Service</small></div>
+    <div class="lane L4"><span class="ic">💎</span>Entity<br><small style="font-weight:400">กฎธุรกิจ</small></div>
+    <div class="lane L5"><span class="ic">💾</span>Data<br><small style="font-weight:400">adapter ขาออก</small></div>
+  </div>
+
+  <div class="fctrl">
+    <button class="fbtn primary" id="fnext">ถัดไป ▶</button>
+    <button class="fbtn" id="fprev">◀ ย้อน</button>
+    <button class="fbtn" id="freset">⟲ เริ่มใหม่</button>
+    <span class="fpos" id="fpos">ขั้น 1</span>
+    <span class="fhint">💡 ใช้ปุ่มลูกศร ← → บนคีย์บอร์ดได้</span>
+  </div>
+
+  <div class="fbody">
+    <div class="fsteps" id="fsteps"></div>
+    <div class="fdetail" id="fdetail"></div>
+  </div>
+</section>
+
+<section id="middleware">
+  <h2><span class="chip">ส่วนที่ 3</span> 🧅 ชั้น middleware — request ผ่านอะไรก่อนถึง handler</h2>
+  <p class="sub">ประกอบใน <code>httpapi.Routes()</code> · <b>gin เรียงตามลำดับที่ <code>Use()</code> ตรงๆ</b> — อ่านจากบนลงล่างได้เลย
+  (ต่างจากเวอร์ชัน stdlib ที่ต้องเขียนกลับหัว)</p>
+
+  <pre><span class="c">// internal/httpapi/httpapi.go:164</span>
+gin.SetMode(gin.ReleaseMode)   <span class="c">// ปิด log ของ gin — เราใช้ requestLog ของเราเอง</span>
+r := gin.New()                 <span class="c">// New ไม่ใช่ Default — Default ยัด middleware มาให้เอง</span>
+
+r.Use(recoverer(a.log), requestID(), cors(a.cfg.AllowedOrigins), requestLog(a.log))
+
+<span class="k">if</span> a.cfg.TracingEnabled {
+  r.Use(otelgin.Middleware(name))   <span class="c">// หลัง requestID เพื่อให้ span มี request_id ติดไป</span>
+}
+
+<span class="k">for</span> _, rt := <span class="k">range</span> a.routes() {
+  <span class="k">if</span> len(rt.roles) &gt; 0 {
+    r.Handle(rt.Method, ginPath(rt.Pattern), <span class="hl">a.requireRole(rt.roles...)</span>, rt.handler)
+    <span class="k">continue</span>
+  }
+  r.Handle(rt.Method, ginPath(rt.Pattern), rt.handler)
+}</pre>
+
+  <div class="mw">
+    <div class="mwl i0"><b>recoverer</b> — <span class="d">ดัก panic ทุกอย่าง → log stack trace แล้วตอบ 500 · <b>stack ไม่หลุดไปหา client</b> (เขียนเอง ไม่ใช้ <code>gin.Recovery()</code> เพราะอยากคุมรูปแบบ log)</span></div>
+    <div class="mwl i1"><b>requestID</b> — <span class="d">รับ <code>X-Request-Id</code> จาก gateway ถ้ามี (ปฏิเสธถ้ายาวเกิน 128) ไม่มีก็สุ่มใหม่ → ใส่ลง context + ตอบกลับใน header</span></div>
+    <div class="mwl i2"><b>cors</b> — <span class="d">ปิดโดย default · ตอบ preflight · ใส่ <code>Vary: Origin</code> เสมอ (กัน cache ปนกันระหว่าง origin)</span></div>
+    <div class="mwl i3"><b>requestLog</b> — <span class="d">อ่าน status จาก <code>c.Writer.Status()</code> → เลือก level ตามผล: <b>5xx=Error · 4xx=Warn · อื่นๆ=Info</b></span></div>
+    <div class="mwl i3"><b>otelgin</b> — <span class="d">🔭 เปิดเมื่อตั้ง <code>-trace</code> · สร้าง <b>span ตัวแม่</b> ของทั้ง request (<code>GET /products</code>) แล้ว span ของ SQL จะไปเกาะเป็นลูกเอง</span></div>
+    <div class="mwl i4"><b>requireRole</b> — <span class="d">🔐 <b>ต่อเฉพาะ route ที่ต้องการ</b> ไม่ใช่ global — อ่านจากคอลัมน์แรกของตาราง routes → <code>401</code> ถ้าไม่มี token · <code>403</code> ถ้าสิทธิ์ไม่พอ</span></div>
+    <div class="mwl i4"><b>gin router</b> — <span class="d">radix tree · <code>"/carts/:id/items"</code> · <code>c.Param("id")</code> — มี <code>ginPath()</code> แปลง <code>{id}</code> ของ openapi เป็น <code>:id</code> ของ gin</span></div>
+    <div class="mwl i4 core"><b>handler → Service → Entity</b> — <span class="d">💎 ตั้งแต่ตรงนี้เข้าไปคือ<b>โลกที่ไม่รู้จัก HTTP และไม่รู้จัก gin</b></span></div>
+  </div>
+
+  <div class="note warn">⚠️ <b>ข้อสังเกตสำคัญ</b> — <code>recoverer</code> อยู่<b>นอกสุด</b> เพราะมันต้องดัก panic ที่เกิดใน middleware ตัวอื่นด้วย
+  ถ้าเอาไปไว้ในสุด panic ที่เกิดใน <code>requestLog</code> จะทำให้ทั้ง process ตาย</div>
+
+  <div class="note key">🔑 <b>ทำไม handler ยังไม่ผูกกับ gin ทั้งที่ใช้ gin</b><br>
+  <code>Routes()</code> คืน <code>http.Handler</code> เหมือนเดิม (gin.Engine implement interface นี้อยู่แล้ว)
+  → เทส HTTP เดิม <b>812 บรรทัดผ่านโดยไม่ต้องแก้</b> เพราะมันยิงผ่าน <code>httptest</code> กับ <code>http.Handler</code>
+  <br>ถ้าเทสเขียนแบบผูกกับ <code>*gin.Context</code> ตั้งแต่แรก การเปลี่ยน framework จะแพงทันที</div>
+
+  <div class="note">📌 <b>ยังไม่มี — และรู้ตัว</b>: <b>handler timeout</b> · <b>rate limit</b> (ควรทำที่ gateway) · <b>idempotency key</b>
+  <br>ตอนนี้ตั้ง <code>ReadHeaderTimeout 5s · ReadTimeout 15s · WriteTimeout 15s · IdleTimeout 60s</code> ที่ <code>cmd/api/main.go</code> แต่ <b>Go ไม่ฆ่า goroutine ของ handler ให้</b> — เกิน WriteTimeout แล้ว handler ยังวิ่งต่อ</div>
+</section>
+
+<section id="auth">
+  <h2><span class="chip">ส่วนที่ 4</span> 🔐 สิทธิ์ 3 ระดับ — อ่านจากคอลัมน์แรกของตาราง</h2>
+  <p class="sub">JWT HS256 · สิทธิ์ผูกกับ route ใน<b>ตารางเดียว</b> ไม่กระจายไปตาม handler
+  — เปิดไฟล์แล้วรู้ทันทีว่าอะไรเปิดสาธารณะ</p>
+
+  <pre><span class="c">// internal/httpapi/httpapi.go:105 — ตัวช่วย 3 ตัว อ่านตารางรู้เรื่องทันที</span>
+pub = <span class="c">// ใครก็เรียกได้ ไม่ต้องล็อกอิน</span>
+usr = <span class="c">// ต้องล็อกอิน (ลูกค้าหรือแอดมินก็ได้)</span>
+adm = <span class="c">// เฉพาะแอดมิน (งานหลังร้าน)</span>
+
+<span class="k">return</span> []Route{
+  <span class="hl">pub</span>(<span class="s">"GET"</span>,  <span class="s">"/products"</span>,       <span class="s">"ดูสินค้าที่ขายอยู่"</span>, a.listProducts),
+  <span class="hl">adm</span>(<span class="s">"POST"</span>, <span class="s">"/products"</span>,       <span class="s">"เพิ่มสินค้า"</span>,        a.createProduct),
+  <span class="hl">usr</span>(<span class="s">"POST"</span>, <span class="s">"/carts/{id}/checkout"</span>, <span class="s">"เปลี่ยนตะกร้าเป็นออเดอร์"</span>, a.checkoutCart),
+  ...
+}</pre>
+
+  <table>
+    <thead><tr><th style="width:13%">ระดับ</th><th style="width:10%">จำนวน</th><th>ตัวอย่าง</th></tr></thead>
+    <tbody>
+      <tr><td><b>pub</b><br><span style="color:#94a3b8;font-size:.8em">สาธารณะ</span></td><td><b>5</b></td><td><code>GET /healthz</code> · <code>GET /readyz</code> · <code>GET /products</code> · <code>GET /products/{id}</code> · <code>POST /customers</code> (สมัครใหม่ — ยังไม่มี token ให้ใช้)</td></tr>
+      <tr><td><b>usr</b><br><span style="color:#94a3b8;font-size:.8em">ต้องล็อกอิน</span></td><td><b>12</b></td><td>ตะกร้าทั้งชุด · <code>GET /orders/{id}</code> · <code>POST /orders/{id}/pay</code> · <code>/cancel</code> — เรื่องของลูกค้าเอง</td></tr>
+      <tr><td><b>adm</b><br><span style="color:#94a3b8;font-size:.8em">แอดมิน</span></td><td><b>8</b></td><td>เพิ่ม/ปิดสินค้า · เติมสต็อก · <code>GET /customers</code> · <code>GET /orders</code> · <code>/prepare</code> <code>/ship</code> <code>/deliver</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note key">🔑 <b>ทำไมไม่มี <code>POST /auth/token</code></b><br>
+  endpoint ที่แจก token ให้ใครก็ได้ = <b>ช่องโหว่ที่ใหญ่กว่าการไม่มี auth</b> เพราะดู<i>เหมือน</i>ปลอดภัย
+  <br>ของจริงต้องต่อกับ IdP (Keycloak / Auth0 / Cognito) — โปรเจกต์นี้เลยออก token ด้วย CLI แทน:
+  <pre style="margin:.5em 0">go run ./cmd/token -secret <span class="s">"$JWT_SECRET"</span> -role admin -sub adm_1</pre></div>
+
+  <div class="note warn">⚠️ <b>ไม่ตั้ง <code>-jwt-secret</code> = auth ปิดทั้งระบบ</b> — ตอนบูตจะ log <code>WARN</code> ว่า
+  “ทุก endpoint เรียกได้โดยไม่ต้องมี token” · จงใจให้เป็นแบบนี้เพื่อให้ <code>make run</code> เล่นได้ทันที
+  แต่<b>ห้ามขึ้น production แบบนี้</b></div>
+
+  <div class="note ok">✅ <b>ช่องโหว่ที่เทสคุมไว้ (11 เคสใน <code>auth_test.go</code>)</b> — ที่สำคัญที่สุดคือ
+  <code>alg=none</code>: token ที่บอกว่า “ฉันไม่ได้เซ็นมา” ต้องถูกปฏิเสธ ไม่ใช่ผ่านเพราะลายเซ็นว่างตรงกับที่คำนวณได้
+  <br>อื่นๆ: หมดอายุ · ลายเซ็นผิด · role แปลกปลอม · header ไม่มีคำว่า <code>Bearer</code></div>
+</section>
+
+<section id="errors">
+  <h2><span class="chip">ส่วนที่ 5</span> 🚨 error จาก domain → HTTP status</h2>
+  <p class="sub">แปลที่เดียวใน <code>httpapi.fail()</code> — domain <b>ไม่รู้จักเลขสถานะ HTTP</b> มันคืน error ที่มีความหมายทางธุรกิจ</p>
+
+  <div class="note key">🔑 <b>ทำไมถึงสำคัญ</b> — ถ้า domain คืน <code>404</code> เมื่อไหร่ แปลว่ามันรู้จัก HTTP แล้ว → เอาไปใช้กับ gRPC / CLI / batch job ไม่ได้อีก
+  <br>ที่นี่ domain คืน <code>catalog.ErrNotFound</code> ส่วน <b>การแปลเป็นเลข เป็นหน้าที่ของ adapter</b></p></div>
+
+  <table>
+    <thead><tr><th style="width:14%">status</th><th style="width:44%">error จาก domain</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><b>404</b></td><td><code>catalog·customer·cart·order·payment .ErrNotFound</code></td><td>ไม่มีของชิ้นนี้</td></tr>
+      <tr><td><b>409</b></td><td><code>ErrDuplicateSKU · ErrDuplicate</code><br><code>order.ErrBadTransition · ErrCannotCancel · ErrAlreadyPaid</code><br><code>payment.ErrNotPending · ErrNotRefundable · checkout.ErrMismatch</code></td><td><b>ชนกับสถานะปัจจุบัน</b> — ของมีอยู่ แต่ทำแบบนี้ตอนนี้ไม่ได้</td></tr>
+      <tr><td><b>422</b></td><td><code>ErrOutOfStock · ErrInactive · cart.ErrNotSellable</code><br><code>customer.ErrSuspended · ErrCreditTooLow · payment.ErrDeclined</code></td><td><b>รูปแบบถูก แต่กฎธุรกิจไม่ให้ผ่าน</b></td></tr>
+      <tr><td><b>400</b></td><td><code>ErrInvalidName · ErrInvalidPrice · cart.ErrInvalidQty</code> ฯลฯ<br><span style="color:#94a3b8">+ <b>binding tag ของ gin</b> ตกตั้งแต่ยังไม่ถึง handler</span></td><td>input ผิดตั้งแต่ต้น</td></tr>
+      <tr><td><b>401</b></td><td>🔐 <b>ไม่ได้มาจาก domain</b> — <code>httpapi/auth.go</code> ตัดสินเอง</td><td>ไม่มี token / token ใช้ไม่ได้</td></tr>
+      <tr><td><b>403</b></td><td>🔐 <b>ไม่ได้มาจาก domain</b> — <code>httpapi/auth.go</code> ตัดสินเอง</td><td>token ใช้ได้ แต่สิทธิ์ไม่พอ</td></tr>
+      <tr><td><b>500</b></td><td>อื่นๆ ทั้งหมด</td><td>ไม่รู้จัก → log ไว้ แล้วตอบกลางๆ</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note ok">✅ <b>409 vs 422 — เส้นแบ่งที่ใช้จริง</b><br>
+  <b>409 Conflict</b> = “ทำไม่ได้เพราะ<b>สถานะ</b>” เช่น จ่ายเงินซ้ำ, ข้ามสถานะ (<code>PAID → SHIPPED</code>)<br>
+  <b>422 Unprocessable</b> = “ทำไม่ได้เพราะ<b>กฎ</b>” เช่น ของหมด, ลูกค้าโดนระงับ, บัตรถูกปฏิเสธ</div>
+
+  <div class="note warn">⚠️ <b>กับดักที่เจอจริงตอนใส่ validation ของ gin</b><br>
+  tag <code>binding:"required"</code> บนฟิลด์ <code>int</code> จะ<b>ปฏิเสธค่า 0</b> เพราะ gin แยกไม่ออกระหว่าง
+  “ไม่ได้ส่งมา” กับ “ส่ง 0 มา”
+  <br>แต่ <code>PATCH /carts/{id}/items/{productID}</code> ที่ <code>qty=0</code> แปลว่า <b>“เอาสินค้าออก”</b> ซึ่งถูกต้อง
+  <br>→ ต้องใช้ <code>binding:"gte=0"</code> แทน · <b>มีเทสคุมไว้ใน <code>validation_test.go</code></b> ไม่ให้ใครเผลอเปลี่ยนกลับ</div>
+</section>
+
+<section id="rules">
+  <h2><span class="chip">ส่วนที่ 6</span> 🛡️ กฎที่ <code>cmd/archlint</code> บังคับ</h2>
+  <p class="sub">อ่าน <code>go list -json ./...</code> → เทียบกับ <code>arch.json</code> → <b>exit 1 ถ้าผิด</b> · รันใน CI และใน <code>docker build</code>
+  <br>ผลตอนนี้: <code>7 domain · 12 adapter · 4 composition</code> — <b>✅ ผ่านทุกกฎ</b></p>
+
+  <div class="note key">🔑 <b>branch นี้คือบททดสอบจริงของ archlint</b><br>
+  ตอนไม่มี dependency เลย กฎ “domain ห้าม import lib ภายนอก” <b>ไม่มีอะไรให้ละเมิด</b>
+  <br>พอมี gin/pgx/otel/jwt อยู่ในโปรเจกต์จริงๆ กฎนี้ถึงเริ่มทำงาน — และมันคือสิ่งเดียวที่กัน
+  <code>import "github.com/gin-gonic/gin"</code> ไม่ให้เผลอหลุดเข้าไปใน <code>internal/order</code></div>
+
+  <table>
+    <thead><tr><th style="width:32%">กฎ</th><th style="width:34%">ห้ามอะไร</th><th><code>go build</code> จับได้ไหม</th></tr></thead>
+    <tbody>
+      <tr><td><code>domainMustNotImportLayers</code></td><td>domain → adapter/composition</td><td>❌ <b>จับไม่ได้</b> ถ้า adapter ไม่ import กลับ (เช่น <code>clock</code>, <code>uid</code>)</td></tr>
+      <tr><td><code>domainMustNotImportThirdParty</code></td><td>domain → lib ภายนอก<br><span style="color:#94a3b8">(gin · pgx · otel · jwt)</span></td><td>❌ จับไม่ได้ — <b>กฎที่มีค่าที่สุดใน branch นี้</b></td></tr>
+      <tr><td><code>domainStdlibDenyList</code></td><td>domain → <code>net/http</code>, <code>database/sql</code> ฯลฯ</td><td>❌ จับไม่ได้</td></tr>
+      <tr><td>cross-domain</td><td>domain → domain อื่น (ยกเว้น <code>money</code>)</td><td>❌ จับไม่ได้</td></tr>
+      <tr><td><code>bannedPackageNames</code></td><td>ชื่อ <code>util · common · helper · model · service</code></td><td>❌ จับไม่ได้</td></tr>
+      <tr><td><code>unclassified-package</code></td><td>package ที่ไม่ได้ระบุชั้นใน <code>arch.json</code></td><td>❌ จับไม่ได้</td></tr>
+      <tr><td>วงจร import</td><td>A → B → A</td><td>✅ <b>จับได้ฟรี</b> — <code>import cycle not allowed</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note warn">⚠️ <b>ข้อค้นพบที่ทำให้ archlint มีค่าจริง</b><br>
+  คำพูดที่ว่า “Go บังคับทิศทางการพึ่งพาให้ฟรี” <b>ถูก แต่ไม่ครบ</b> — กลไกจริงคือ <b>วงจร import</b> ซึ่งเกิดเฉพาะเมื่ออีกฝั่ง import กลับ
+  <br>ดังนั้น <code>order → clock</code> (adapter ที่ไม่ import <code>order</code> กลับ) <b>compiler ยอมให้ผ่าน</b>
+  <br>ทดสอบแล้วโดยแทรกการละเมิด 4 แบบ: <code>go build</code> ผ่านหมด · <b>archlint จับได้ทั้ง 4</b></div>
+
+  <div class="note ok">✅ <b>วิธีตรวจสถาปัตยกรรมด้วยมือ (ทำได้ทันทีโดยไม่ต้องมี archlint)</b>
+  <pre style="margin:.6em 0"><span class="c"># 1) domain ต้องไม่มี adapter โผล่ในรายการนี้</span>
+go list -deps ./internal/order | grep go-shop
+<span class="c">#    ควรได้แค่:  internal/money</span>
+
+<span class="c"># 2) domain ต้องไม่มี lib ภายนอกเลย — บรรทัดนี้ต้องไม่คืนอะไรออกมา</span>
+go list -deps ./internal/order | grep -E <span class="s">'gin-gonic|jackc|opentelemetry|golang-jwt'</span>
+<span class="c">#    ถ้ามีผลลัพธ์ = boundary รั่วแล้ว</span></pre></div>
+
+  <div class="note">📌 <b>arch.json โตขึ้นตาม stack</b> — adapter เพิ่ม <code>pgstore</code> <code>pgstore/gen</code>
+  <code>migrations</code> <code>token</code> <code>tracing</code> · composition เพิ่ม <code>cmd/migrate</code> <code>cmd/token</code>
+  <br>💡 <b>package ที่ไม่ได้ระบุชั้นไว้ = ผิดกฎทันที</b> (<code>unclassified-package</code>) — บังคับให้คนเพิ่ม package ใหม่ต้อง<b>ตัดสินใจว่ามันอยู่ชั้นไหน</b> ไม่ใช่โยนไว้เฉยๆ</div>
+</section>
+
+<footer>
+  go-shop · เอกสารนี้อ่านจากโค้ดจริงในโปรเจกต์ ไม่ใช่จากความจำ<br>
+  เขียนร่วมกับ Claude (AI)
+</footer>
+
+</main>
+
+<script>
+/* ══════════ ข้อมูลไฟล์ ══════════ */
+const D = '💎 domain — กฎธุรกิจ (ไม่รู้จักโลกภายนอก)';
+const A = '🔌 adapter — ต่อเข้ากับโลกจริง';
+const C = '🔧 composition — ประกอบร่าง';
+const G = '⚙️ config &amp; spec';
+const T = '🧪 test ที่น่าสนใจ';
+
+const FILES = [
+{path:'internal/money/money.go', short:'money/money.go', group:D, layer:'domain', lines:108,
+ role:'shared kernel — ภาษากลางเรื่อง "เงิน" ของทั้งระบบ',
+ body:'<p>ประกาศ <code>type Satang int64</code> — เก็บเงินเป็น<b>จำนวนเต็มหน่วยสตางค์</b> ไม่ใช่ <code>float64</code></p>'+
+      '<ul><li><code>FromBaht()</code> / <code>FromSatang()</code> · <code>Add</code> · <code>Mul</code></li>'+
+      '<li><code>String()</code> → <code>฿1,234.50</code></li>'+
+      '<li><code>MarshalJSON()</code> → <code>{"satang":123450,"text":"฿1,234.50"}</code> — client ได้ทั้งเลขไว้คำนวณและข้อความไว้แสดง</li></ul>',
+ imports:'encoding/json · errors · fmt · strings <b>(stdlib ล้วน)</b>',
+ why:'🔑 <b>เป็น domain เดียวที่ทุก domain อื่น import ได้</b> — ถ้าไม่มี แต่ละ domain จะประกาศ type เงินของตัวเองแล้วต้องแปลงไปมา<br>ราคาที่จ่าย: แก้ที่นี่ = กระเทือนทุกคน → จึงต้องเล็กและนิ่ง (<b>ไม่มีกฎธุรกิจของใครอยู่ในนี้เลย</b>)'},
+
+{path:'internal/catalog/product.go', short:'catalog/product.go', group:D, layer:'domain', lines:146,
+ role:'entity สินค้า + กฎการจอง/ตัดสต็อก + ประกาศ Repository port',
+ body:'<p><code>Product{ID, SKU, Name, Price, Stock, Reserved, Active}</code></p>'+
+      '<ul><li><code>Available() = Stock − Reserved</code> — <b>แยก "ของในคลัง" กับ "ของที่ถูกจองแล้ว"</b></li>'+
+      '<li>วงจรสต็อก: <code>Reserve</code> (จองตอนสั่ง) → <code>Fulfil</code> (ตัดจริงตอนส่ง) หรือ <code>Release</code> (คืนตอนยกเลิก)</li>'+
+      '<li><code>CanSell(qty)</code> · <code>Reprice</code> · <code>Restock</code> · <code>Deactivate</code></li></ul>'+
+      '<p>ท้ายไฟล์ประกาศ <code>type Repository interface</code> — <b>port อยู่ในไฟล์เดียวกับ entity</b></p>',
+ imports:'context · errors · fmt · strings · <code>internal/money</code>',
+ why:'💡 <b>ทำไม constructor ชื่อ <code>New()</code> ไม่ใช่ <code>NewProduct()</code></b> — เวลาเรียกจะกลายเป็น <code>catalog.New()</code> ซึ่งอ่านครบแล้ว · <code>catalog.NewProduct()</code> = พูดซ้ำ (stutter) ตาม Effective Go'},
+
+{path:'internal/catalog/service.go', short:'catalog/service.go', group:D, layer:'domain', lines:116,
+ role:'use case ของสินค้า — จัดลำดับงาน ไม่ตัดสินกฎเอง',
+ body:'<p><code>Get</code> · <code>Browse</code> (เฉพาะ Active) · <code>Add</code> · <code>Reserve</code> · <code>Release</code> · <code>Fulfil</code> · <code>Restock</code> · <code>Reprice</code></p>'+
+      '<p>ทุกตัวที่แก้ของใช้ helper เดียวกัน:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0">func (s *Service) Reserve(ctx, id, qty) error {\n  return s.mutate(ctx, id, func(p *Product) error {\n    return p.Reserve(qty)   <span class="c">// ← กฎอยู่ที่ entity</span>\n  })\n}</pre>',
+ imports:'context · errors · fmt · strings · <code>internal/money</code>',
+ why:'🔑 <b>สังเกตว่า Service ไม่มี <code>if</code> ที่ตัดสินเรื่องธุรกิจเลย</b> — มันแค่ อ่าน → ให้ entity ตัดสิน → บันทึก<br>ถ้าเห็นกฎธุรกิจโผล่ใน service แปลว่ามันหลุดออกมาจาก entity'},
+
+{path:'internal/customer/customer.go', short:'customer/customer.go', group:D, layer:'domain', lines:104,
+ role:'entity ลูกค้า + กฎว่าใครสั่งของได้',
+ body:'<p><code>const MaxOpenOrders = 5</code> — <b>กฎธุรกิจอยู่เป็นค่าคงที่ที่อ่านออก</b> ไม่ใช่เลขลอยกลางโค้ด</p>'+
+      '<ul><li><code>CanOrder()</code> — ถูกระงับไหม? มีออเดอร์ค้างเกิน 5 ไหม?</li>'+
+      '<li><code>OrderOpened()</code> / <code>OrderClosed()</code> — นับออเดอร์ที่ค้าง</li>'+
+      '<li><code>validEmail()</code> · <code>Suspend</code> / <code>Restore</code></li></ul>',
+ imports:'context · errors · fmt · strings <b>(ไม่ import แม้แต่ <code>money</code>)</b>',
+ why:'💎 <b>domain ที่พึ่งพาน้อยที่สุดในระบบ</b> — เพราะเรื่อง "ใครสั่งของได้" ไม่เกี่ยวกับเงินเลย<br>เป็นตัวอย่างว่า shared kernel ไม่ใช่ของที่ต้อง import ทุกที่'},
+
+{path:'internal/customer/service.go', short:'customer/service.go', group:D, layer:'domain', lines:87,
+ role:'use case ลูกค้า — สมัคร · ตรวจสิทธิ์สั่งซื้อ · นับออเดอร์ค้าง',
+ body:'<p><code>Register</code> · <code>Get</code> · <code>List</code> · <code>EnsureCanOrder</code> · <code>OrderOpened</code> · <code>OrderClosed</code></p>'+
+      '<p><code>EnsureCanOrder</code> คือตัวที่ <code>order</code> เรียกใช้ผ่าน port — แต่ <b><code>order</code> ไม่รู้ว่าปลายทางคือ package นี้</b></p>',
+ imports:'context · errors · fmt · strings',
+ why:'🔌 ถูกเรียกจาก <code>order</code> ผ่าน port <code>order.Shoppers</code> โดยมี <code>bridge.OrderShoppers</code> เป็นตัวต่อท่อ'},
+
+{path:'internal/cart/cart.go', short:'cart/cart.go', group:D, layer:'domain', lines:158,
+ role:'⭐ entity ตะกร้า + ตัวอย่างที่ชัดที่สุดของ "port อยู่ที่ผู้ใช้"',
+ body:'<p><b>cart ต้องใช้ข้อมูลสินค้า แต่ไม่ import <code>catalog</code></b> — มันประกาศ port ของตัวเองขึ้นมา:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="k">type</span> <span class="f">ProductInfo</span> <span class="k">struct</span> {   <span class="c">// มุมมองของ cart ต่อสินค้า</span>\n  ID, Name <span class="k">string</span>\n  Price    money.Satang\n  Sellable <span class="k">bool</span>          <span class="c">// สนใจแค่ 4 อย่าง ไม่สน stock/sku</span>\n}\n\n<span class="k">type</span> <span class="f">Catalog</span> <span class="k">interface</span> {       <span class="hl">// ← consumer-declared port</span>\n  Lookup(ctx, productID) (ProductInfo, error)\n}</pre>'+
+      '<p>กฎในตัว entity: <code>MaxLines = 50</code> · <code>Add</code> (มีอยู่แล้วให้บวก) · <code>SetQty</code> (0 = เอาออก) · <code>Total</code> · <code>Clear</code></p>',
+ imports:'context · errors · fmt · <code>internal/money</code>',
+ why:'🔑 <b>นี่คือหัวใจของ Hexagonal</b> — interface เป็นของ<b>ผู้เรียก</b> ไม่ใช่ของผู้ถูกเรียก<br>ผลลัพธ์: เทส <code>cart</code> ได้โดยไม่ต้องมี <code>catalog</code> · สองทีมทำงานแยกกันได้<br>💡 <code>Line</code> เก็บ <code>UnitPrice</code> ไว้ในตัว ไม่ไปดึงจาก catalog ตอนคิดเงิน — <b>ราคาต้องนิ่ง ณ เวลาที่หยิบใส่ตะกร้า</b>'},
+
+{path:'internal/cart/service.go', short:'cart/service.go', group:D, layer:'domain', lines:97,
+ role:'use case ตะกร้า',
+ body:'<p><code>OpenFor</code> · <code>Get</code> · <code>AddItem</code> · <code>SetQty</code> · <code>RemoveItem</code> · <code>Clear</code></p>'+
+      '<p>dependency ทั้ง 3 ตัวเป็น interface ที่ package นี้ประกาศเอง: <code>Repository</code> · <code>Catalog</code> · <code>IDGenerator</code></p>',
+ imports:'context · errors',
+ why:'📌 ดูลำดับใน <code>AddItem</code>: <b>ถามราคาจาก port → ให้ entity ตัดสิน → บันทึก</b><br>service ไม่ได้ตัดสินกฎเอง มันแค่<b>จัดลำดับงาน</b>'},
+
+{path:'internal/order/order.go', short:'order/order.go', group:D, layer:'domain', lines:239,
+ role:'⭐ entity ออเดอร์ + state machine เป็น "ข้อมูล" + 7 ports',
+ body:'<p>สถานะเปลี่ยนได้ตามตารางเดียว ไม่ใช่ <code>if</code> ซ้อน:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="k">var</span> transitions = <span class="k">map</span>[Status][]Status{\n  Placed:    {Paid, Cancelled},\n  Paid:      {Preparing, Cancelled},\n  Preparing: {Shipped, Cancelled},\n  Shipped:   {Delivered},\n  Delivered: {}, Cancelled: {},\n}</pre>'+
+      '<p>ทุกการเปลี่ยนสถานะผ่านประตูเดียว <code>o.to(next, now)</code> → เพิ่มสถานะใหม่ = แก้ตารางที่เดียว</p>'+
+      '<p><b>ประกาศ port เอง 7 ตัว</b>: <code>Stock</code> · <code>Shoppers</code> · <code>Wallet</code> · <code>Clock</code> · <code>IDGenerator</code> · <code>Repository</code> · <span class="hl"><code>TxManager</code></span></p>'+
+      '<p>🆕 <b>บรรทัดเดียวที่ domain ต้องเพิ่มเพื่อรองรับ PostgreSQL ทั้งก้อน</b>:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="k">type</span> <span class="f">TxManager</span> <span class="k">interface</span> {\n  Do(ctx context.Context, fn <span class="k">func</span>(ctx context.Context) <span class="k">error</span>) <span class="k">error</span>\n}</pre>',
+ imports:'context · errors · fmt · time · <code>internal/money</code>',
+ why:'🔑 <b>ทำไมต้องมี port <code>Clock</code></b> — ถ้าเรียก <code>time.Now()</code> ตรงๆ เทสจะเขียนไม่ได้ (เวลาเปลี่ยนทุกครั้งที่รัน)<br>มี port แล้วเทสยัด <code>clock.Fixed{At: ...}</code> เข้าไปได้ → ผลลัพธ์เดิมทุกครั้ง<br><br>🆕 <b><code>TxManager</code> คือ 14 บรรทัดเดียวที่ domain ขยับตลอด branch นี้</b> — สังเกตว่า signature ไม่มีคำว่า SQL, commit หรือ rollback เลย · domain บอกแค่ “ทำให้เป็นหน่วยเดียว” ส่วน “ทำยังไง” เป็นเรื่องของ <code>pgstore</code>'},
+
+{path:'internal/order/service.go', short:'order/service.go', group:D, layer:'domain', lines:247,
+ role:'⭐ use case ออเดอร์ — ห่อทั้งงานไว้ใน transaction เดียว',
+ body:'<p><code>Place</code> · <code>Pay</code> · <code>StartPreparing</code> · <code>Ship</code> · <code>Deliver</code> · <code>Cancel</code></p>'+
+      '<p><code>Place</code> ห่อ<b>ทุกขั้น</b>ไว้ในหน่วยเดียว — สำเร็จทั้งหมด หรือไม่เกิดอะไรขึ้นเลย:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0">err := <span class="hl">s.tx.Do(ctx, <span class="k">func</span>(ctx context.Context) <span class="k">error</span> {</span>\n  s.shoppers.EnsureCanOrder(ctx, customerID)   <span class="c">// ตรวจสิทธิ์สั่งซื้อ</span>\n  <span class="k">for</span> _, l := <span class="k">range</span> lines {\n    s.stock.Reserve(ctx, l.ProductID, l.Qty)   <span class="c">// จองสต็อก</span>\n  }\n  o, _ := New(s.ids.NewID(), customerID, lines, s.clock.Now())\n  s.repo.Save(ctx, o)                          <span class="c">// บันทึกออเดอร์</span>\n  s.shoppers.OrderOpened(ctx, customerID)      <span class="c">// นับออเดอร์ค้าง</span>\n  <span class="k">return</span> <span class="k">nil</span>\n<span class="hl">})</span></pre>'+
+      '<p>💡 <code>releaseAll</code> ยังอยู่ใน <code>defer</code> — <b>ไม่ใช่ของซ้ำซ้อน</b> แต่เป็นทางถอยสำหรับ store ที่ไม่มี transaction (<code>memory</code>/<code>jsonstore</code>) · บน PostgreSQL ตัว <code>ROLLBACK</code> จัดการให้ก่อนแล้ว</p>',
+ imports:'context · errors · fmt · time · <code>internal/money</code>',
+ why:'✅ <b>หนี้ก้อนนี้ปิดแล้วใน branch นี้</b> — เวอร์ชัน <code>main</code> ใช้ compensating action ล้วน ถ้า process ตายกลาง <code>releaseAll</code> ของจะค้างจองถาวร<br>ตอนนี้ <code>pgstore</code> ให้ <code>BEGIN/COMMIT</code> จริง → process ตายกลางทาง = <b>ROLLBACK อัตโนมัติ ไม่มีออเดอร์ผี</b><br>🧪 <b>มีเทสพิสูจน์ว่ามันจำเป็นจริง</b> (<code>pgstore/tx_test.go</code>) — รันงานเดียวกันโดย<b>ไม่มี</b> transaction แล้วยืนยันว่าเกิดข้อมูลค้าง ถ้าใครถอด <code>tx.Do</code> ออก เทสจะแดง'},
+
+{path:'internal/payment/payment.go', short:'payment/payment.go', group:D, layer:'domain', lines:122,
+ role:'entity การชำระเงิน + port ไปหา gateway ภายนอก',
+ body:'<p><code>Payment{ID, OrderID, Amount, Status, Reference}</code> · สถานะ <code>PENDING → SUCCEEDED / FAILED → REFUNDED</code></p>'+
+      '<p>ประกาศ port 3 ตัว: <code>Gateway</code> (ตัดบัตรจริง) · <code>Clock</code> · <code>Repository</code></p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="k">type</span> <span class="f">Gateway</span> <span class="k">interface</span> {\n  Charge(ctx, paymentID <span class="k">string</span>, amount money.Satang) (Charge, <span class="k">error</span>)\n}</pre>',
+ imports:'context · errors · fmt · time · <code>internal/money</code>',
+ why:'🔌 <b>domain รู้แค่ว่า "มีใครสักคนตัดเงินให้ได้"</b> ไม่รู้ว่าเป็น Stripe, Omise หรือของปลอม<br>วันเปลี่ยนเจ้า = เขียน adapter ใหม่ 1 ตัว · <code>internal/payment</code> ไม่ต้องแตะ'},
+
+{path:'internal/payment/service.go', short:'payment/service.go', group:D, layer:'domain', lines:113,
+ role:'use case การชำระเงิน — เก็บเงิน · คืนเงิน · ดูประวัติ',
+ body:'<p><code>Collect</code> (สร้าง Payment → เรียก Gateway → บันทึกผล) · <code>Refund</code> · <code>ForOrder</code></p>'+
+      '<p>บันทึกทุกครั้งที่พยายามจ่าย <b>ไม่ว่าสำเร็จหรือไม่</b> → มีร่องรอยให้ตรวจสอบย้อนหลัง</p>',
+ imports:'context · errors · fmt · time · <code>internal/money</code>',
+ why:'📌 ถูกเรียกจาก <code>order</code> ผ่าน port <code>order.Wallet</code> — <code>order</code> ไม่รู้จัก <code>payment</code>'},
+
+{path:'internal/checkout/checkout.go', short:'checkout/checkout.go', group:D, layer:'domain', lines:116,
+ role:'⭐ process domain — คำตอบของ "domain ที่ต้องคุยกันจริงๆ ทำยังไง"',
+ body:'<p>"checkout" เป็น<b>คำที่ลูกค้าพูดจริง</b> = business process → สมควรเป็น domain ของตัวเอง ไม่ใช่โค้ดที่ยัดใน handler</p>'+
+      '<p>ประกาศ port 2 ตัวที่<b>ไม่พูดถึง cart หรือ order เลย</b>:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="k">type</span> <span class="f">Baskets</span> <span class="k">interface</span> {\n  Read(ctx, cartID) (Basket, <span class="k">error</span>)\n  Empty(ctx, cartID) <span class="k">error</span>\n}\n<span class="k">type</span> <span class="f">Orders</span> <span class="k">interface</span> {\n  Place(ctx, customerID, lines) (orderID, total, <span class="k">error</span>)\n  Pay(ctx, orderID) <span class="k">error</span>\n}</pre>'+
+      '<p><b>ไม่มี <code>Repository</code></b> — checkout ไม่ได้เก็บอะไรเป็นของตัวเอง มันเป็นแค่ "ขั้นตอน"</p>',
+ imports:'context · errors · fmt · <code>internal/money</code>',
+ why:'🔑 <b>ถ้าไม่มี package นี้ <code>cart</code> จะต้อง import <code>order</code> → ติดกันถาวร</b><br>💎 ลำดับใน <code>Submit</code> สำคัญมาก: <b>ล้างตะกร้าเป็นขั้นสุดท้ายเสมอ</b> — ถ้าจ่ายเงินไม่ผ่าน ตะกร้าลูกค้าต้องยังอยู่'},
+
+{path:'internal/httpapi/httpapi.go', short:'httpapi/httpapi.go', group:A, layer:'adapter', lines:692,
+ role:'driving adapter — แปลง HTTP เป็นการเรียก use case',
+ body:'<p>หน้าที่มีแค่ 3 อย่าง: <b>decode → เรียก service → encode</b></p>'+
+      '<p>เก็บ endpoint เป็น<b>ตาราง</b> ไม่ใช่เรียก <code>mux.HandleFunc</code> กระจาย:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="k">type</span> <span class="f">Route</span> <span class="k">struct</span> {\n  Method, Pattern, Summary <span class="k">string</span>\n  handler gin.HandlerFunc\n  <span class="hl">roles   []token.Role</span>   <span class="c">// ว่าง = เปิดสาธารณะ</span>\n}</pre>'+
+      '<p>🔐 <b>คอลัมน์ <code>roles</code> ทำให้อ่านตารางแล้วรู้ทันทีว่า endpoint ไหนเปิดสาธารณะ</b> — ไม่ต้องไล่เปิดทีละ handler</p>'+
+      '<p>→ "รายการ endpoint" กลายเป็น<b>ข้อมูลที่โปรแกรมอ่านได้</b> → เอาไปเทียบกับ <code>openapi.json</code> ได้อัตโนมัติ</p>'+
+      '<p><code>fail()</code> คือที่เดียวที่แปลง domain error → HTTP status</p>',
+ imports:'net/http · log/slog · <b>gin</b> · <b>otelgin</b> · <code>internal/token</code> · <b>domain ทั้ง 7 ตัว</b>',
+ why:'🔑 <b>นี่คือที่เดียวในระบบที่มี gin</b> — เวอร์ชัน <code>main</code> ใช้ <code>net/http</code> ล้วน การเปลี่ยนมาใช้ gin แก้แค่ package นี้<br>💎 <b>เทส HTTP เดิม 812 บรรทัดผ่านโดยไม่แก้สักบรรทัด</b> เพราะ <code>Routes()</code> ยังคืน <code>http.Handler</code> เหมือนเดิม (gin.Engine implement interface นี้อยู่แล้ว)<br><code>internal/order</code>, <code>internal/catalog</code> ฯลฯ ไม่ต้องแตะเลย · <b>archlint บังคับข้อนี้ไว้</b>'},
+
+{path:'internal/httpapi/support.go', short:'httpapi/support.go', group:A, layer:'adapter', lines:262,
+ role:'middleware + ตัวช่วย encode/decode',
+ body:'<ul><li><b>middleware 4 ตัว</b> (เขียนเป็น <code>gin.HandlerFunc</code>): <code>recoverer</code> · <code>requestID</code> · <code>cors</code> · <code>requestLog</code></li>'+
+      '<li><code>decode()</code> — จำกัด body <b>1 MiB</b> + <code>DisallowUnknownFields</code> (พิมพ์ชื่อ field ผิด = ฟ้อง ไม่ใช่เงียบ)</li>'+
+      '<li><code>parseBaht()</code> — แปลง "1234.50" เป็น <code>Satang</code> <b>โดยไม่ผ่าน float เลย</b></li>'+
+      '<li>อ่าน status จาก <code>c.Writer.Status()</code> ที่ gin มีให้ — <b>ลบ <code>statusRecorder</code> ที่เคยเขียนเองทิ้งได้</b></li></ul>',
+ imports:'crypto/rand · encoding/hex · encoding/json · runtime/debug · <code>internal/money</code>',
+ why:'💡 <code>requestID</code> รับค่าจาก gateway ต้นทางถ้ามี (<b>ปฏิเสธถ้ายาวเกิน 128 ตัวอักษร</b> — กัน header injection) ไม่มีก็สุ่มใหม่ → ตาม request ข้ามระบบได้'},
+
+{path:'internal/httpapi/docs.go', short:'httpapi/docs.go', group:A, layer:'adapter', lines:136,
+ role:'เสิร์ฟ Swagger UI + OpenAPI spec',
+ body:'<p><code>GET /openapi.json</code> · <code>GET /docs</code> (Swagger UI จาก CDN) · <code>GET /</code> → redirect ไป <code>/docs</code></p>'+
+      '<p>ฝัง spec เข้า binary ด้วย <code>//go:embed openapi.json</code> — <b>deploy ไฟล์เดียวจบ</b> ไม่ต้องแบก static file</p>'+
+      '<p>เปิด/ปิดได้ด้วย <code>-docs=false</code></p>',
+ imports:'embed · encoding/json · net/http',
+ why:'📌 <code>SpecPaths()</code> / <code>RoutePaths()</code> เปิดไว้ให้เทสเรียก — คือฐานของเทสกันเอกสารหลุดจากโค้ด'},
+
+{path:'internal/httpapi/auth.go', short:'httpapi/auth.go', group:A, layer:'adapter', lines:85,
+ role:'🔐 ด่านตรวจสิทธิ์ — middleware ที่ต่อเฉพาะ route ที่ต้องการ',
+ body:'<p><code>requireRole(roles...)</code> คืน <code>gin.HandlerFunc</code> ที่เอาไปเสียบท้าย route ได้:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0">raw := bearerToken(c.GetHeader(<span class="s">"Authorization"</span>))\nclaims, err := a.issuer.Verify(raw)\n<span class="k">if</span> err != <span class="k">nil</span> { <span class="hl">401</span> }         <span class="c">// ไม่มี token หรือ token เสีย</span>\n<span class="k">if</span> !hasRole(claims.Role, want) { <span class="hl">403</span> }  <span class="c">// มี token แต่สิทธิ์ไม่พอ</span></pre>'+
+      '<p><code>ClaimsFrom(ctx)</code> ให้ handler ดึงตัวตนผู้เรียกออกมาใช้ได้ — เก็บด้วย <code>type claimsKey struct{}</code> ที่ไม่ export คนนอกจึงยัดค่าปลอมเข้ามาไม่ได้</p>',
+ imports:'context · net/http · strings · <b>gin</b> · <code>internal/token</code>',
+ why:'🔑 <b>401 กับ 403 ไม่ใช่เรื่องเดียวกัน</b> — 401 = “ไม่รู้ว่าคุณเป็นใคร” (ไปเอา token มา) · 403 = “รู้ว่าเป็นใคร แต่ไม่ให้” (เอา token มาใหม่ก็ไม่ช่วย)<br>💎 <b>domain ไม่รู้เรื่องสิทธิ์เลย</b> — เรื่องนี้อยู่ที่ขอบ ไม่ปนเข้าไปในกฎธุรกิจ'},
+
+{path:'internal/pgstore/pgstore.go', short:'pgstore/pgstore.go', group:A, layer:'adapter', lines:134,
+ role:'⭐ หัวใจของ adapter ฐานข้อมูล — pool + ตัวจริงของ TxManager',
+ body:'<p><code>Open()</code> ตั้ง pool ของ pgx แล้วเสียบ <code>otelpgx</code> เป็น tracer ที่ <code>ConnConfig.Tracer</code></p>'+
+      '<p><b>วิธีส่ง transaction ลงไปถึง repo โดยไม่ต้องแก้ signature ของ port สักตัว:</b></p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="k">type</span> txKey <span class="k">struct</span>{}   <span class="c">// key ที่ไม่ export — คนนอกยัดมั่วไม่ได้</span>\n\n<span class="k">func</span> (s *Store) q(ctx) *gen.Queries {\n  <span class="k">if</span> tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {\n    <span class="k">return</span> gen.New(tx)     <span class="c">// อยู่ใน transaction → ใช้ tx</span>\n  }\n  <span class="k">return</span> gen.New(s.pool)   <span class="c">// ไม่อยู่ → ใช้ pool ปกติ</span>\n}</pre>'+
+      '<p>🔁 <b><code>withinTx</code> เข้าร่วม transaction เดิมถ้ามีอยู่แล้ว ไม่เปิดซ้อน</b> — กันเคส <code>repo.Save</code> ที่มี tx ในตัว ถูกเรียกจาก use case ที่เปิด tx ไว้แล้ว</p>',
+ imports:'context · <b>pgx/v5 + pgxpool</b> · <b>otelpgx</b> · <code>pgstore/gen</code>',
+ why:'🔑 <b>นี่คือคำตอบของ “ทำ transaction ยังไงโดยไม่ให้ domain รู้จัก SQL”</b><br>domain เห็นแค่ <code>tx.Do(ctx, fn)</code> ส่วนตัว transaction เดินทางไปกับ <code>context</code> ซึ่ง port ทุกตัวรับอยู่แล้ว'},
+
+{path:'internal/pgstore/catalog_repo.go', short:'pgstore/catalog_repo.go', group:A, layer:'adapter', lines:142,
+ role:'⭐ ที่ที่บั๊ก oversell ถูกฆ่า — ย้ายเงื่อนไขเข้าไปอยู่ใน SQL',
+ body:'<p>ของเดิมทำแบบ <b>อ่าน → ตรวจ → เขียน</b> ซึ่งมีช่องว่างให้คนอื่นแทรกกลาง:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="c">// ❌ A กับ B อ่าน stock=10 พร้อมกัน แล้วต่างคนต่างจอง 10</span>\np := repo.FindByID(id)\n<span class="k">if</span> p.Available() &gt;= qty { p.Reserved += qty; repo.Save(p) }</pre>'+
+      '<p><b>ของใหม่ — เงื่อนไขอยู่ใน <code>UPDATE</code> เดียว ฐานข้อมูลล็อกแถวให้เอง:</b></p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="c">-- name: ReserveStock :execrows</span>\n<span class="k">UPDATE</span> products\n<span class="k">SET</span>    reserved = reserved + @qty\n<span class="k">WHERE</span>  id = @id\n  <span class="k">AND</span>  active = <span class="k">TRUE</span>\n  <span class="hl">AND  stock - reserved &gt;= @qty</span>   <span class="c">-- เงื่อนไขอยู่ตรงนี้</span></pre>'+
+      '<p><code>:execrows</code> คืนจำนวนแถวที่ถูกแก้ — <b>0 แถว = จองไม่สำเร็จ</b> → แปลงกลับเป็น <code>catalog.ErrOutOfStock</code></p>',
+ imports:'context · errors · <b>pgx/v5</b> · <code>internal/catalog</code> · <code>internal/money</code>',
+ why:'🧪 <b>พิสูจน์ด้วยเทสจริง</b> (<code>concurrency_test.go</code>) — สต็อก <b>10</b> ชิ้น ยิง <b>100 goroutine</b> พร้อมกัน คนละ 1 ชิ้น<br>ต้องสำเร็จ <b>10 พอดี</b> ที่เหลือได้ <code>ErrOutOfStock</code> และ <code>available</code> ต้องไม่ติดลบ<br>💎 <b>กฎธุรกิจยังอยู่ที่ entity เหมือนเดิม</b> — SQL แค่บังคับใช้กฎเดียวกันแบบ atomic'},
+
+{path:'internal/pgstore/gen/', short:'pgstore/gen/ (7 ไฟล์)', group:A, layer:'adapter', lines:862,
+ role:'🤖 โค้ดที่ sqlc generate ให้ — ห้ามแก้ด้วยมือ',
+ body:'<p>เขียน SQL ที่ <code>internal/pgstore/queries/*.sql</code> → <code>sqlc generate</code> → ได้ Go ที่ type-safe</p>'+
+      '<p>ไฟล์: <code>db.go</code> · <code>models.go</code> · <code>catalog.sql.go</code> · <code>cart.sql.go</code> · <code>customer.sql.go</code> · <code>order.sql.go</code> · <code>payment.sql.go</code></p>'+
+      '<p>🔍 <b>sqlc อ่าน schema จาก migration จริง</b> — พิมพ์ชื่อคอลัมน์ผิด หรือแก้ schema แล้วลืมแก้ query จะ<b>พังตอน generate ไม่ใช่ตอน runtime</b></p>',
+ imports:'context · <b>pgx/v5</b>',
+ why:'💡 <b>ทำไมไม่ใช้ ORM</b> — ORM ซ่อน SQL ทำให้ query ที่แก้ oversell (<code>UPDATE … WHERE stock - reserved &gt;= qty</code>) เขียนยากและมองไม่เห็น<br>sqlc ให้เขียน SQL ตรงๆ แต่ได้ความปลอดภัยของ type กลับมา<br>🧪 CI มีเทสตรวจว่าโค้ดที่ generate <b>ตรงกับ SQL ปัจจุบัน</b> — ใครแก้ SQL แล้วลืม generate จะโดนจับ'},
+
+{path:'internal/memory/memory.go', short:'memory/memory.go', group:A, layer:'adapter', lines:276,
+ role:'driven adapter — เก็บของในหน่วยความจำ (ค่า default)',
+ body:'<p>implement <code>Repository</code> ของ 5 domain: <code>Products</code> · <code>Customers</code> · <code>Carts</code> · <code>Orders</code> · <code>Payments</code></p>'+
+      '<p>ทุกตัวมี <code>sync.RWMutex</code> และ <b>คืน copy เสมอ</b>:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="c">// cloneCart คัดลอกลึก — Lines เป็น slice</span>\n<span class="c">// ถ้าไม่ copy จะแชร์ backing array กัน</span>\nout.Lines = <span class="k">append</span>([]cart.Line(<span class="k">nil</span>), c.Lines...)</pre>',
+ imports:'context · sort · sync · <b>domain 5 ตัว</b>',
+ why:'🔑 <b>ทิศทางการพึ่งพา</b>: <code>memory → domain</code> (ชั้นนอกเห็นชั้นในตรงๆ = Onion)<br>ในทางกลับกัน domain <b>ไม่มีบรรทัด <code>import "memory"</code> เลยสักที่</b> (= Hexagonal)<br>💡 คืน copy ไม่ใช่ pointer เพราะกัน caller แก้ state ในถังโดยไม่ผ่าน <code>Save</code>'},
+
+{path:'internal/jsonstore/jsonstore.go', short:'jsonstore/jsonstore.go', group:A, layer:'adapter', lines:318,
+ role:'driven adapter ตัวที่สอง — เก็บลงไฟล์ JSON (พิสูจน์ว่าสลับ DB ได้จริง)',
+ body:'<p>ใช้ generics ทำถังกลางตัวเดียวแล้วเอาไปใช้ทุก domain:</p>'+
+      '<pre style="font-size:.74rem;margin:.5em 0"><span class="k">type</span> table[T <span class="k">any</span>] <span class="k">struct</span> {\n  mu   sync.RWMutex\n  path <span class="k">string</span>\n  data <span class="k">map</span>[<span class="k">string</span>]T\n}</pre>'+
+      '<p>เขียนแบบ <b>write-then-rename</b> — เขียนลงไฟล์ <code>.tmp</code> ก่อนแล้วค่อย <code>os.Rename</code> ทับ → ไฟล์ไม่พังกลางคันถ้าโปรเซสตายระหว่างเขียน</p>',
+ imports:'encoding/json · os · path/filepath · sync · <b>domain 5 ตัว</b>',
+ why:'✅ <b>นี่คือหลักฐานของเทสข้อ 1 "เปลี่ยน DB ได้ไหม"</b> — สั่ง <code>-store=json</code> แล้วสั่งซื้อ → restart → ออเดอร์ยังอยู่<br><b>โดยที่ <code>internal/*</code> ฝั่ง domain ไม่ถูกแก้แม้แต่ตัวอักษรเดียว</b><br>⚠️ <code>gosec</code> พบว่าเขียนไฟล์ด้วยสิทธิ์ <code>0644</code> — ควรเป็น <code>0600</code>'},
+
+{path:'internal/bridge/bridge.go', short:'bridge/bridge.go', group:A, layer:'adapter', lines:157,
+ role:'⭐ adapter ที่ต่อ port ของ domain หนึ่ง เข้ากับ service ของอีก domain หนึ่ง',
+ body:'<p><b>package เดียวในระบบที่รู้จักหลาย domain</b> — 6 ตัวต่อท่อ:</p>'+
+      '<table style="font-size:.78rem;margin:.5em 0"><tr><td><code>CartCatalog</code></td><td>cart.Catalog ← catalog</td></tr>'+
+      '<tr><td><code>OrderStock</code></td><td>order.Stock ← catalog</td></tr>'+
+      '<tr><td><code>OrderShoppers</code></td><td>order.Shoppers ← customer</td></tr>'+
+      '<tr><td><code>OrderWallet</code></td><td>order.Wallet ← payment</td></tr>'+
+      '<tr><td><code>CheckoutBaskets</code></td><td>checkout.Baskets ← cart</td></tr>'+
+      '<tr><td><code>CheckoutOrders</code></td><td>checkout.Orders ← order</td></tr></table>'+
+      '<p>ทุกตัวยืนยันตัวเองตอน compile: <code>var _ cart.Catalog = CartCatalog{}</code></p>',
+ imports:'context · <b>domain ทั้ง 7 ตัว</b>',
+ why:'🔑 <b>อ่านไฟล์นี้ไฟล์เดียว = เห็นแผนที่การพึ่งพาของทั้งระบบ</b><br>อยากแยก <code>order</code> ออกไปเป็น microservice → <b>ลบ bridge ตัวนั้นทิ้ง เขียน HTTP client แทน</b> · <code>internal/order</code> ไม่ต้องแก้เลย<br>⚠️ bridge ทุกตัว<b>บางมากโดยตั้งใจ</b> — ถ้าเริ่มมี <code>if</code>/<code>for</code> แปลว่ามีกฎธุรกิจหลุดออกมา'},
+
+{path:'internal/clock/clock.go', short:'clock/clock.go', group:A, layer:'adapter', lines:32,
+ role:'adapter เวลา — implement order.Clock และ payment.Clock',
+ body:'<p>3 แบบ: <code>System{}</code> (เวลาจริง UTC) · <code>Fixed{At}</code> (หยุดนิ่ง — สำหรับเทส) · <code>Ticking{}</code> (เดินทีละก้าวที่กำหนดเอง)</p>',
+ imports:'time <b>(เท่านั้น)</b>',
+ why:'⚠️ <b>ไฟล์นี้คือหลักฐานว่าทำไมต้องมี archlint</b><br><code>clock</code> ไม่ได้ import <code>order</code> กลับ → ถ้า <code>order</code> เผลอ import <code>clock</code> ตรงๆ <b>จะไม่เกิด import cycle → <code>go build</code> ผ่าน!</b><br>compiler จับไม่ได้ · archlint จับได้'},
+
+{path:'internal/uid/uid.go', short:'uid/uid.go', group:A, layer:'adapter', lines:55,
+ role:'adapter สร้าง ID — implement IDGenerator ของหลาย domain',
+ body:'<p><code>Random{Prefix}</code> — <code>crypto/rand</code> + timestamp เข้ารหัส base36 → <code>prd_k3x9a2</code>, <code>ord_...</code>, <code>cus_...</code></p>'+
+      '<p><code>Sequential{}</code> — <code>sync/atomic</code> นับขึ้นทีละ 1 สำหรับเทสที่อยากได้ ID เดาได้</p>',
+ imports:'crypto/rand · encoding/binary · sync/atomic · time',
+ why:'💡 prefix ทำให้ ID <b>บอกตัวเองได้ว่าเป็นของอะไร</b> — เห็น <code>ord_</code> ใน log ก็รู้ทันทีว่าเป็นออเดอร์ ไม่ต้องไปไล่หา'},
+
+{path:'internal/fakepay/fakepay.go', short:'fakepay/fakepay.go', group:A, layer:'adapter', lines:47,
+ role:'adapter payment gateway ปลอม — implement payment.Gateway',
+ body:'<p>ตัดเงินสำเร็จเสมอ <b>ยกเว้น</b>ยอดที่ลงท้ายด้วย <code>.13</code> → คืน <code>ErrDeclined</code></p>'+
+      '<p>เก็บประวัติการเรียกไว้ให้เทสตรวจได้ (<code>sync.Mutex</code> ป้องกัน race)</p>',
+ imports:'context · fmt · strings · sync · <code>internal/money</code> · <code>internal/payment</code>',
+ why:'✅ <b>ทำให้เดินเส้นทาง "จ่ายเงินไม่ผ่าน" ได้จริงโดยไม่ต้องมีบัตรจริง</b> — เส้นทาง error เป็นเส้นทางที่คนลืมเทสบ่อยที่สุด<br>วันเปลี่ยนเป็น Stripe จริง = เขียน <code>internal/stripe</code> ขึ้นมาใหม่ แล้วสลับใน <code>main.go</code> บรรทัดเดียว'},
+
+{path:'internal/token/token.go', short:'token/token.go', group:A, layer:'adapter', lines:106,
+ role:'ออกและตรวจ JWT — ที่เดียวที่รู้จักไลบรารี jwt',
+ body:'<p><code>Issuer.Issue(subject, role, now)</code> → token · <code>Issuer.Verify(raw)</code> → <code>*Claims</code></p>'+
+      '<p><code>type Role string</code> — <code>RoleCustomer</code> · <code>RoleAdmin</code></p>'+
+      '<p>🔒 <b>บังคับ HS256 ตอน verify</b> ไม่ใช่เชื่อค่า <code>alg</code> ที่มากับ token</p>',
+ imports:'errors · fmt · time · <b>golang-jwt/jwt/v5</b>',
+ why:'🚨 <b><code>alg=none</code> คือช่องโหว่คลาสสิกของ JWT</b> — ผู้โจมตีส่ง token ที่บอกว่า “ฉันไม่ได้เซ็นมา” ถ้าโค้ดเชื่อ header ก็ผ่านทันที<br>ที่นี่ระบุ algorithm ที่ยอมรับไว้ตายตัว · <b>มีเทสยิงเคสนี้โดยเฉพาะ</b>'},
+
+{path:'internal/tracing/tracing.go', short:'tracing/tracing.go', group:A, layer:'adapter', lines:110,
+ role:'🔭 ตั้ง OpenTelemetry ให้ทั้งระบบ แล้วคืนฟังก์ชันปิด',
+ body:'<p>exporter 3 แบบ: <code>none</code> (ค่าเริ่มต้น) · <code>stdout</code> (ดูตอน dev) · <code>otlp</code> (ส่งเข้า collector)</p>'+
+      '<p><b>ParentBased sampler</b> — ถ้า service ต้นทางตัดสินใจ sample มาแล้วเราตามเขา ไม่งั้น trace จะขาดกลางทางเมื่อมีหลาย service</p>'+
+      '<p>propagator ตามมาตรฐาน W3C (<code>traceparent</code> + <code>baggage</code>)</p>'+
+      '<p>ตอนปิดมี <b>timeout 5 วินาที</b> ให้ flush span ที่ค้าง ไม่งั้น trace ท่อนสุดท้ายหายตอนโปรเซสตาย</p>',
+ imports:'context · fmt · os · time · <b>otel + sdk/trace + exporters</b>',
+ why:'🔑 <b>ไม่มี span ที่เขียนเองในโค้ด domain แม้แต่ที่เดียว</b> — ได้มาจาก instrumentation ที่ขอบทั้งสองด้าน (<code>otelgin</code> ขาเข้า · <code>otelpgx</code> ขาออก)<br>ยิง <code>GET /products</code> ครั้งเดียวได้ <b>4 span ในต้นเดียวกัน</b>: <code>GET /products</code> → <code>pool.acquire</code> + <code>query ListProducts</code> → <code>prepare</code><br>⚠️ <b>กับดักที่เจอจริง</b>: <code>resource.Merge</code> พังถ้า schema URL ของ semconv ไม่ตรงกับที่ SDK ใช้'},
+
+{path:'internal/migrations/embed.go', short:'migrations/embed.go', group:A, layer:'adapter', lines:11,
+ role:'ฝังไฟล์ migration เข้าไปใน binary',
+ body:'<pre style="font-size:.74rem;margin:.5em 0"><span class="c">//go:embed *.sql</span>\n<span class="k">var</span> FS embed.FS</pre>'+
+      '<p>ไฟล์จริงคือ <code>00001_init.sql</code> (119 บรรทัด) — สร้างตาราง 5 ตัว พร้อม index และ constraint</p>',
+ imports:'embed',
+ why:'💡 <b>binary กับ schema เดินทางไปด้วยกัน</b> — deploy ไฟล์เดียวจบ ไม่มีเคส “โค้ดเวอร์ชันใหม่ แต่ migration เก่าค้างบนเครื่อง”<br><code>cmd/migrate</code> กับตอนบูตของ <code>cmd/api</code> อ่านจากตัวนี้ตัวเดียวกัน'},
+
+{path:'cmd/api/main.go', short:'cmd/api/main.go', group:C, layer:'composition', lines:434,
+ role:'⭐ composition root — ที่เดียวที่ตัดสินว่า port ไหนใช้ adapter ไหน',
+ body:'<p>สายการประกอบ (บรรทัด 104–140):</p>'+
+      '<pre style="font-size:.72rem;margin:.5em 0">cartSvc := cart.NewService(\n  repos.carts,                              <span class="c">// cart.Repository</span>\n  <span class="hl">bridge.CartCatalog{Catalog: catalogSvc}</span>,  <span class="c">// cart.Catalog ← catalog</span>\n  uid.Random{Prefix: <span class="s">"crt"</span>},\n)\norderSvc := order.NewService(\n  repos.orders,\n  <span class="hl">bridge.OrderStock{Catalog: catalogSvc}</span>,\n  <span class="hl">bridge.OrderShoppers{Customers: customerSvc}</span>,\n  <span class="hl">bridge.OrderWallet{Payments: paymentSvc}</span>,\n  uid.Random{Prefix: <span class="s">"ord"</span>}, wallClock,\n)</pre>'+
+      '<p>อย่างอื่น: อ่าน env · เลือก store (<code>-store=memory|json</code>) · ตั้ง logger (text/json) · timeout ของ server · <b>graceful drain</b> (ตอบ <code>readyz</code> 503 ก่อนปิดจริง เพื่อให้ LB ถอดออกจาก pool ก่อน)</p>',
+ imports:'ทุก package ในโปรเจกต์',
+ why:'🔑 <b>Go ไม่มี annotation แบบ Spring</b> — DI ที่นี่คือ<b>โค้ดที่อ่านออกด้วยตาเปล่า</b> ไม่มี reflection ไม่มีเวทมนตร์<br>อยากรู้ว่าอะไรต่อกับอะไร? อ่านไฟล์นี้ไฟล์เดียวจบ<br>เปลี่ยน DB = แก้บรรทัดเดียวตรง <code>repos</code>'},
+
+{path:'cmd/migrate/main.go', short:'cmd/migrate/main.go', group:C, layer:'composition', lines:77,
+ role:'สั่ง migration ด้วย goose — up · down · status · version',
+ body:'<pre style="font-size:.74rem;margin:.5em 0">go run ./cmd/migrate -dsn <span class="s">"$DSN"</span> up\n<span class="c"># หรือ: make migrate · make migrate-status · make migrate-reset</span></pre>'+
+      '<p>อ่าน SQL จาก <code>internal/migrations</code> ที่ฝังไว้ใน binary</p>',
+ imports:'flag · os · <b>goose/v3</b> · <code>internal/migrations</code>',
+ why:'📌 <b>แยกเป็นคำสั่งของตัวเอง ไม่ยัดใน API</b> — จะได้รันเป็น init container หรือขั้นตอน deploy แยกได้ โดยไม่ต้องบูต API ทั้งตัว'},
+
+{path:'cmd/token/main.go', short:'cmd/token/main.go', group:C, layer:'composition', lines:58,
+ role:'🔐 ออก JWT สำหรับทดสอบ — แทน endpoint แจก token',
+ body:'<pre style="font-size:.74rem;margin:.5em 0">go run ./cmd/token -secret <span class="s">"$JWT_SECRET"</span> -role admin -sub adm_1\n<span class="c"># หรือ: make token ROLE=admin SUB=adm_1</span></pre>',
+ imports:'flag · fmt · os · time · <code>internal/token</code>',
+ why:'🔑 <b>จงใจไม่ทำ <code>POST /auth/token</code></b> — endpoint ที่แจก admin token ให้ใครก็ได้คือช่องโหว่ที่ใหญ่กว่าการไม่มี auth เพราะดู<i>เหมือน</i>ปลอดภัย<br>ของจริงต้องต่อ IdP ภายนอก · CLI ตัวนี้ใช้เฉพาะตอน dev และทดสอบ'},
+
+{path:'cmd/archlint/main.go', short:'cmd/archlint/main.go', group:C, layer:'composition', lines:405,
+ role:'⭐ ตัวบังคับกฎสถาปัตยกรรม — จุดขายจริงของโปรเจกต์นี้',
+ body:'<p>อ่าน <code>go list -json ./...</code> → สร้าง import graph → เทียบกับ <code>arch.json</code> → <b><code>exit 1</code> ถ้าผิด</b></p>'+
+      '<p>ตรวจ 6 กฎ: domain ห้าม import adapter · ห้าม import lib นอก · ห้าม stdlib ต้องห้าม · ห้าม cross-domain · ห้ามชื่อ package กลวง · ทุก package ต้องถูกจัดชั้น</p>'+
+      '<p>รันได้ทั้ง <code>make arch</code>, ใน CI และ<b>ใน <code>docker build</code></b> — image สร้างไม่ได้ถ้าสถาปัตยกรรมพัง</p>',
+ imports:'encoding/json · os/exec · <b>ไม่ import package อื่นในโปรเจกต์เลย</b>',
+ why:'💎 <b>ไม่ผูกกับ go-shop เลย</b> — ใช้แค่ <code>arch.json</code> + <code>go list</code> → <b>ยกไปยิงโปรเจกต์ Go อื่นได้ทันที</b><br>⚠️ <code>gocognit</code> ฟ้องว่าฟังก์ชัน <code>check()</code> ซับซ้อน 49 — ควรแตกเป็นฟังก์ชันต่อกฎ'},
+
+{path:'arch.json', short:'arch.json', group:G, layer:'config', lines:72,
+ role:'ไฟล์ที่นิยาม "สถาปัตยกรรม" ให้เครื่องอ่านได้',
+ body:'<p>ระบุว่า package ไหนอยู่ชั้นไหน (domain / adapter / composition) และกฎอะไรบังคับอยู่บ้าง</p>'+
+      '<p>เพิ่ม domain ใหม่ = <b>เพิ่มชื่อลงไฟล์นี้</b> ไม่งั้น archlint จะฟ้อง <code>unclassified-package</code></p>',
+ imports:'—',
+ why:'🔑 <b>นี่คือความต่างระหว่าง "เขียนกฎไว้ใน README" กับ "กฎที่ทำให้ build พัง"</b><br>กฎที่ไม่มีตัวบังคับ = คำแนะนำ · กฎที่อยู่ในไฟล์นี้ = สัญญา'},
+
+{path:'internal/pgstore/queries/*.sql', short:'pgstore/queries/*.sql', group:G, layer:'config', lines:150,
+ role:'SQL ที่เขียนเอง — ต้นทางของโค้ดที่ sqlc generate',
+ body:'<p>5 ไฟล์: <code>catalog</code> (55) · <code>order</code> (35) · <code>cart</code> (27) · <code>customer</code> (17) · <code>payment</code> (16)</p>'+
+      '<p>คำสั่งสำคัญที่สุดคือ <code>ReserveStock :execrows</code> — ตัวที่ทำให้ยิงพร้อมกันแล้วสต็อกไม่ติดลบ</p>',
+ imports:'—',
+ why:'💡 <b>อ่านโฟลเดอร์นี้ = รู้ว่าระบบคุยกับฐานข้อมูลด้วยคำสั่งอะไรบ้าง</b> ครบทุกคำสั่งในที่เดียว ไม่ต้องไล่หาใน ORM'},
+
+{path:'internal/migrations/00001_init.sql', short:'migrations/00001_init.sql', group:G, layer:'config', lines:119,
+ role:'schema ตั้งต้น — ตาราง 5 ตัว',
+ body:'<p><code>products</code> · <code>customers</code> · <code>carts</code> + <code>cart_lines</code> · <code>orders</code> + <code>order_lines</code> · <code>payments</code></p>'+
+      '<p>มี <code>CHECK</code> constraint กันข้อมูลเพี้ยนที่ระดับฐานข้อมูล เช่น <b>จำนวนที่จองต้องไม่เกินสต็อก</b> และ <b>เงินต้องไม่ติดลบ</b></p>',
+ imports:'—',
+ why:'🔑 <b>constraint คือกฎธุรกิจชั้นสุดท้าย</b> — ต่อให้โค้ดมีบั๊ก ฐานข้อมูลก็ยังปฏิเสธข้อมูลที่ผิดกฎ<br>💡 ไม่ได้แทนกฎใน entity แต่เป็น<b>ตาข่ายรองรับ</b> อีกชั้น'},
+
+{path:'internal/httpapi/openapi.json', short:'httpapi/openapi.json', group:G, layer:'config', lines:1638,
+ role:'OpenAPI 3.0.3 spec — เขียนมือ ไม่ได้ gen จาก annotation',
+ body:'<p>25 path · 11 schema · ฝังเข้า binary ด้วย <code>go:embed</code></p>'+
+      '<p><b>เขียนมือทำไม?</b> เพราะ gen จาก annotation ต้องพึ่ง lib ภายนอก ซึ่งจะทำให้ <code>go.mod</code> ไม่ว่างอีกต่อไป</p>',
+ imports:'—',
+ why:'⚠️ <b>ความเสี่ยงของการเขียนมือคือ spec หลุดจากโค้ด</b> — แก้ด้วยเทสแทนวินัย (ดูไฟล์ถัดไป)'},
+
+{path:'internal/httpapi/openapi_test.go', short:'httpapi/openapi_test.go', group:T, layer:'test', lines:213,
+ role:'⭐ เทสกัน "เอกสารโกหก"',
+ body:'<p>เทียบ <b>ตาราง routes ↔ spec</b> สองทาง:</p>'+
+      '<ul><li>โค้ดมี แต่ spec ไม่มี = <b>ลืมเขียนเอกสาร</b></li>'+
+      '<li>spec มี แต่โค้ดไม่มี = <b>เอกสารโกหก</b></li>'+
+      '<li>ไล่ <code>$ref</code> ทุกตัวว่า resolve ได้ — กัน typo ที่ทำให้ Swagger UI พังตอนเปิด</li></ul>',
+ imports:'encoding/json · testing',
+ why:'✅ <b>ทดสอบแล้วว่าจับได้จริง</b> — เพิ่ม <code>GET /orders/{id}/invoice</code> เข้าตาราง routes โดยไม่แตะ spec → เทสแดงทันที พร้อมบอกชื่อ endpoint<br>💡 <b>หลักการเดียวกับ archlint</b>: ถ้าตรวจได้ อย่าปล่อยให้เป็นแค่ความหวัง'},
+
+{path:'internal/pgstore/concurrency_test.go', short:'pgstore/concurrency_test.go', group:T, layer:'test', lines:148,
+ role:'⭐ เทสที่พิสูจน์ว่า oversell ตายจริง',
+ body:'<p><b>สต็อก 10 ชิ้น · ยิง 100 goroutine พร้อมกัน คนละ 1 ชิ้น</b></p>'+
+      '<p>ผลที่ต้องได้: สำเร็จ <b>10 พอดี</b> · ที่เหลือ <b>90</b> ได้ <code>catalog.ErrOutOfStock</code> · <code>reserved = 10</code> และ <code>available = 0</code></p>'+
+      '<p>มีเทสคู่กัน: คืนของที่จองแล้วสต็อกต้องกลับมาเท่าเดิม · จองสินค้าที่ไม่มีต้องได้ <code>ErrNotFound</code></p>',
+ imports:'sync · testing · <code>internal/catalog</code> · <code>internal/pgstore</code>',
+ why:'🔑 <b>บั๊กแบบนี้เทสทีละคนไม่มีวันเจอ</b> — ต้องยิงพร้อมกันเท่านั้น<br>💎 นี่คือเหตุผลที่ย้ายจาก <code>memory</code> มา PostgreSQL ไม่ใช่แค่ “อยากมี DB จริง”'},
+
+{path:'internal/pgstore/tx_test.go', short:'pgstore/tx_test.go', group:T, layer:'test', lines:153,
+ role:'⭐ เทสที่พิสูจน์ว่า transaction จำเป็นจริง',
+ body:'<p>รันงานชุดเดียวกัน <b>สองแบบ</b> แล้วเทียบผล:</p>'+
+      '<ul><li><b>มี</b> <code>tx.Do</code> → พังกลางทาง = ไม่เหลืออะไรเลย</li>'+
+      '<li><b>ไม่มี</b> <code>tx.Do</code> → พังกลางทาง = <b>เหลือ “ออเดอร์ผี”</b> กับสต็อกที่ถูกจองค้าง</li></ul>',
+ imports:'context · errors · testing · <code>internal/order</code> · <code>internal/pgstore</code>',
+ why:'🔑 <b>เทสที่อธิบายว่า “ทำไมต้องมี” ไม่ใช่แค่ “มันทำงาน”</b><br>ถ้าใครถอด <code>tx.Do</code> ออกเพราะคิดว่าไม่จำเป็น เทสนี้จะแดงพร้อมบอกเหตุผล'},
+
+{path:'internal/httpapi/auth_test.go', short:'httpapi/auth_test.go', group:T, layer:'test', lines:186,
+ role:'🔐 11 เคสของการยืนยันตัวตนและสิทธิ์',
+ body:'<p>ตารางเดียวยิงครบ: ไม่มี token → <b>401</b> · customer ยิง endpoint แอดมิน → <b>403</b> · admin → <b>200</b></p>'+
+      '<p>เคสช่องโหว่: <b><code>alg=none</code></b> · ลายเซ็นผิด · หมดอายุ · role แปลกปลอม · header ไม่มีคำว่า <code>Bearer</code></p>',
+ imports:'net/http/httptest · testing · <code>internal/token</code>',
+ why:'🚨 <b><code>alg=none</code> คือเคสที่สำคัญที่สุด</b> — เป็นช่องโหว่ที่เคยทำให้ระบบจริงหลายเจ้าโดนเจาะ<br>มีเทสคุมไว้ = ต่อให้เปลี่ยนไลบรารี jwt วันหลัง ก็ยังปลอดภัย'},
+
+{path:'internal/*/[domain]_test.go', short:'เทส domain ×7', group:T, layer:'test', lines:1377,
+ role:'เทสกฎธุรกิจ — ไม่ต้องมี DB ไม่ต้องมี HTTP',
+ body:'<p><code>cart_test</code> 198 · <code>catalog_test</code> 178 · <code>customer_test</code> 138 · <code>order_test</code> 429 · <code>payment_test</code> 189 · <code>checkout_test</code> 161 · <code>money_test</code> 74<br><code>httpapi_test</code> 400 · <code>middleware_test</code> 199</p>'+
+      '<p>ใช้ fake เล็กๆ ที่เขียนในไฟล์เทสเอง ไม่ต้องพึ่ง mock framework</p>',
+ imports:'testing (+ domain ที่เทส)',
+ why:'✅ <b>นี่คือเสา "Easy to Test" ที่จับต้องได้</b> — เทส <code>order</code> ได้โดยไม่ต้องมี catalog จริง เพราะ <code>order</code> คุยผ่าน port<br>coverage จาก CI: checkout 91% · money 89% · cart 79% · order 77%'},
+];
+/* ══════════ ข้อมูลเส้นทาง ══════════ */
+const L_HTTP = {lane:1, layer:'🌐 HTTP adapter', badge:'adapter'};
+const L_PORT = {lane:2, layer:'🔌 Port (interface)', badge:'port'};
+const L_UC   = {lane:3, layer:'⚙️ Use case (Service)', badge:'domain'};
+const L_ENT  = {lane:4, layer:'💎 Entity (กฎธุรกิจ)', badge:'domain'};
+const L_DATA = {lane:5, layer:'💾 Data adapter', badge:'adapter'};
+const S = (base, o) => Object.assign({}, base, o);
+
+const FLOWS = [
+{
+tab:'🧺 หยิบของใส่ตะกร้า — POST /carts/{id}/items 🔐',
+steps:[
+S(L_HTTP,{title:'1 · request เข้ามาที่ http.Server', loc:'cmd/api/main.go:150',
+ body:'<p>ลูกค้ายิงคำสั่งเข้ามา — ตรงนี้ยังเป็นแค่ byte บนสาย ยังไม่มีใครรู้ว่ามันคืออะไร</p>',
+ code:'curl -X POST localhost:8080/carts/crt_a1/items \\\n  -H <span class="s">"Content-Type: application/json"</span> \\\n  -d <span class="s">\'{"product_id":"prd_x9","qty":3}\'</span>',
+ lesson:'⏱️ server ตั้ง <code>ReadHeaderTimeout 5s · ReadTimeout 15s · WriteTimeout 15s</code> ไว้ที่ composition root — ไม่ใช่เรื่องของ domain'}),
+
+S(L_HTTP,{title:'2 · ผ่าน middleware ของ gin', loc:'internal/httpapi/httpapi.go:174',
+ body:'<p>🆕 <b>gin เรียงตามลำดับที่ <code>Use()</code> ตรงๆ</b> — ไม่ต้องอ่านกลับหัวเหมือนตอนใช้ stdlib</p>'+
+      '<p><code>recoverer</code> → <code>requestID</code> → <code>cors</code> → <code>requestLog</code> → <code>otelgin</code> → route</p>',
+ code:'<span class="c">// httpapi.go:174 — อ่านบนลงล่าง = ลำดับการทำงาน</span>\nr.Use(recoverer(a.log), requestID(), cors(...), requestLog(a.log))\n\n<span class="k">if</span> a.cfg.TracingEnabled {\n  r.Use(<span class="hl">otelgin.Middleware(name)</span>)   <span class="c">// เปิด span ตัวแม่ของ request</span>\n}',
+ lesson:'💡 <code>requestID</code> ใส่ <code>X-Request-Id</code> ลง context ตรงนี้ → ทุก log ของ request นี้มีเลขเดียวกัน<br>🔭 <b><code>otelgin</code> วางไว้หลัง <code>requestID</code></b> เพื่อให้ span พก request id ติดไปด้วย — log กับ trace จึงโยงหากันได้'}),
+
+S(L_HTTP,{title:'3 · 🔐 gin จับคู่ route แล้วตรวจสิทธิ์', loc:'internal/httpapi/httpapi.go:185',
+ body:'<p>ทุก route ยังมาจาก<b>ตารางเดียว</b>เหมือนเดิม — แต่ตอนนี้ตารางมีคอลัมน์ <b>สิทธิ์</b> เพิ่มมา</p>'+
+      '<p><code>POST /carts/{id}/items</code> ถูกประกาศเป็น <code>usr</code> → <b>ต้องมี token</b> ไม่งั้นจบที่นี่ด้วย <code>401</code></p>',
+ code:'<span class="k">for</span> _, rt := <span class="k">range</span> a.routes() {\n  <span class="k">if</span> <span class="k">len</span>(rt.roles) &gt; 0 {\n    r.Handle(rt.Method, ginPath(rt.Pattern), <span class="hl">a.requireRole(rt.roles...)</span>, rt.handler)\n    <span class="k">continue</span>\n  }\n  r.Handle(rt.Method, ginPath(rt.Pattern), rt.handler)\n}',
+ lesson:'📌 <code>ginPath()</code> แปลง <code>{id}</code> ของ OpenAPI เป็น <code>:id</code> ของ gin — <b>ตารางเดียวยังเทียบกับ spec ได้เหมือนเดิม</b><br>🔐 ด่านสิทธิ์ต่อ<b>เฉพาะ route ที่ต้องการ</b> ไม่ใช่ global — อ่านตารางแล้วรู้ทันทีว่าอะไรเปิดสาธารณะ'}),
+
+S(L_HTTP,{title:'4 · handler แปลง JSON เป็นตัวแปร', loc:'internal/httpapi/httpapi.go:398',
+ body:'<p>handler มีหน้าที่แค่ <b>decode → เรียก service → encode</b> · ไม่มีกฎธุรกิจสักบรรทัด</p>',
+ code:'<span class="k">func</span> (a *API) <span class="f">addCartItem</span>(c *gin.Context) {\n  <span class="k">var</span> body <span class="k">struct</span> {\n    ProductID <span class="k">string</span> <span class="s">`binding:"required"`</span>\n    Qty       <span class="k">int</span>    <span class="s">`binding:"required,gt=0"`</span>\n  }\n  <span class="k">if</span> !decode(c, &amp;body) { <span class="k">return</span> }\n  <span class="hl">crt, err := a.svc.Carts.AddItem(c.Request.Context(), c.Param(<span class="s">"id"</span>), body.ProductID, body.Qty)</span>',
+ lesson:'🛡️ <code>decode()</code> ยังจำกัด body ที่ <b>1 MiB</b> และเปิด <code>DisallowUnknownFields</code> · <b>แล้วค่อยให้ validator ของ gin ตรวจ <code>binding</code> tag ต่อ</b> — ผิดตั้งแต่รูปแบบ = ไม่ต้องรบกวน domain<br>⚠️ <b>กับดัก</b>: <code>required</code> บน <code>int</code> ปฏิเสธค่า 0 · ตรงที่ <code>qty=0</code> แปลว่า “เอาออก” ต้องใช้ <code>gte=0</code> แทน',
+ warn:'⚠️ <b>ถ้าเห็น <code>if</code> ที่ตัดสินเรื่องธุรกิจในไฟล์นี้เมื่อไหร่ แปลว่ามีของหลุดออกมาจาก domain</b>'}),
+
+S(L_UC,{title:'5 · เข้าสู่ use case — cart.Service.AddItem', loc:'internal/cart/service.go:52',
+ body:'<p><b>🚪 ตั้งแต่บรรทัดนี้เข้าไป คือโลกที่ไม่รู้จัก HTTP</b> — ไม่มี <code>ResponseWriter</code> ไม่มี status code ไม่มี header</p>'+
+      '<p>Service ทำหน้าที่<b>จัดลำดับงาน</b> 4 ขั้น: หาตะกร้า → ถามราคา → ให้ entity ตัดสิน → บันทึก</p>',
+ code:'<span class="k">func</span> (s *Service) <span class="f">AddItem</span>(ctx, cartID, productID <span class="k">string</span>, qty <span class="k">int</span>) (*Cart, <span class="k">error</span>) {\n  c, err := <span class="hl">s.repo.FindByID</span>(ctx, cartID)        <span class="c">// ①</span>\n  ...\n  info, err := <span class="hl">s.catalog.Lookup</span>(ctx, productID)  <span class="c">// ②</span>\n  ...\n  <span class="k">if</span> err := <span class="hl">c.Add(info, qty)</span>; err != <span class="k">nil</span> {...}   <span class="c">// ③</span>\n  <span class="k">if</span> err := <span class="hl">s.repo.Save</span>(ctx, c); err != <span class="k">nil</span> {...} <span class="c">// ④</span>',
+ lesson:'🔑 <code>s.repo</code> และ <code>s.catalog</code> เป็น <b>interface ที่ package <code>cart</code> ประกาศเอง</b> — ตอนนี้ยังไม่มีใครรู้ว่าปลายทางคืออะไร'}),
+
+S(L_PORT,{title:'6 · เรียกผ่าน port cart.Repository', loc:'internal/cart/cart.go (ท้ายไฟล์)',
+ body:'<p>port ตัวนี้ประกาศอยู่ใน<b>ไฟล์เดียวกับ entity</b> ไม่ได้อยู่ในโฟลเดอร์ <code>port/</code> กลาง</p>',
+ code:'<span class="k">type</span> <span class="f">Repository</span> <span class="k">interface</span> {\n  FindByID(ctx, id <span class="k">string</span>) (*Cart, <span class="k">error</span>)\n  FindByCustomer(ctx, customerID <span class="k">string</span>) (*Cart, <span class="k">error</span>)\n  Save(ctx, c *Cart) <span class="k">error</span>\n  Delete(ctx, id <span class="k">string</span>) <span class="k">error</span>\n}',
+ lesson:'🔑 <b>interface เป็นของผู้เรียก ไม่ใช่ของผู้ถูกเรียก</b> — <code>cart</code> กำหนดเองว่าอยากได้ความสามารถอะไร แล้วใครจะมาทำให้ก็เรื่องของคนนั้น'}),
+
+S(L_DATA,{title:'7 · 💾 ถึงฐานข้อมูลครั้งแรก — pgstore.Carts', loc:'internal/pgstore/cart_repo.go:19',
+ body:'<p>ตัวจริงที่ implement <code>cart.Repository</code> · รันด้วย <code>-store=memory</code> เมื่อไหร่ ตัวนี้จะกลายเป็น <code>memory.Carts</code> แทน <b>โดย <code>cart</code> ไม่รู้เรื่องเลย</b></p>'+
+      '<p>ตะกร้าเก็บเป็น 2 ตาราง (<code>carts</code> + <code>cart_lines</code>) → <code>withLines()</code> ประกอบกลับเป็น entity ตัวเดียว</p>',
+ code:'<span class="k">func</span> (r *Carts) <span class="f">FindByID</span>(ctx context.Context, id <span class="k">string</span>) (*cart.Cart, <span class="k">error</span>) {\n  head, err := <span class="hl">r.s.q(ctx)</span>.GetCart(ctx, id)   <span class="c">// q() เลือกให้เองว่าใช้ tx หรือ pool</span>\n  <span class="k">if</span> errors.Is(err, pgx.ErrNoRows) {\n    <span class="k">return</span> <span class="k">nil</span>, cart.ErrNotFound   <span class="c">// แปลเป็น error ของ domain</span>\n  }\n  <span class="k">return</span> r.withLines(ctx, head)\n}',
+ lesson:'🔑 <b>บรรทัดสำคัญที่สุดคือ <code>pgx.ErrNoRows</code> → <code>cart.ErrNotFound</code></b> — adapter <b>แปล error ของ pgx เป็นภาษาของ domain</b><br>ถ้าปล่อย <code>pgx.ErrNoRows</code> หลุดขึ้นไป domain จะเริ่มรู้จัก pgx ทันที · <b>archlint จับไม่ได้ เพราะเป็นเรื่องของค่า ไม่ใช่ import</b>'}),
+
+S(L_PORT,{title:'8 · ⭐ เรียกผ่าน port cart.Catalog — จุดที่สำคัญที่สุด', loc:'internal/cart/cart.go:44',
+ body:'<p><b><code>cart</code> ต้องรู้ราคาสินค้า แต่ไม่ import <code>catalog</code>เลย</b> — มันประกาศ port + type ของตัวเองขึ้นมา</p>',
+ code:'<span class="k">type</span> <span class="f">ProductInfo</span> <span class="k">struct</span> {   <span class="c">// "มุมมองของ cart" ต่อสินค้า</span>\n  ID, Name <span class="k">string</span>\n  Price    money.Satang\n  Sellable <span class="k">bool</span>          <span class="c">// สนใจแค่นี้ ไม่สน stock/reserved/sku</span>\n}\n\n<span class="k">type</span> <span class="f">Catalog</span> <span class="k">interface</span> {\n  <span class="hl">Lookup(ctx, productID <span class="k">string</span>) (ProductInfo, <span class="k">error</span>)</span>\n}',
+ lesson:'🔑 <b>นี่คือหัวใจของ Hexagonal ทั้งหมด</b> — "มันคุยผ่าน interface มันไม่รู้จักตัวจริงด้วยซ้ำ"<br>ผล: เทส <code>cart</code> ได้โดยไม่ต้องมี <code>catalog</code> · สองทีมแยกกันทำได้'}),
+
+S(L_PORT,{title:'9 · 🌉 bridge ต่อท่อไปหา catalog ตัวจริง', loc:'internal/bridge/bridge.go:37',
+ body:'<p><b>package เดียวในระบบที่รู้จักทั้งสองฝั่ง</b> · ถูกเสียบเข้าไปตอน <code>main.go</code> ประกอบร่าง</p>',
+ code:'<span class="k">type</span> CartCatalog <span class="k">struct</span>{ Catalog *catalog.Service }\n<span class="k">var</span> _ cart.Catalog = CartCatalog{}   <span class="c">// ยืนยันตอน compile</span>\n\n<span class="k">func</span> (b CartCatalog) <span class="f">Lookup</span>(ctx, productID <span class="k">string</span>) (cart.ProductInfo, <span class="k">error</span>) {\n  p, err := <span class="hl">b.Catalog.Get(ctx, productID)</span>   <span class="c">// ← ข้ามไป domain อื่น</span>\n  ...',
+ lesson:'💎 <b>อยากแยก <code>catalog</code> ออกไปเป็น microservice?</b> เขียน bridge ตัวใหม่ที่ยิง HTTP แทน — <code>internal/cart</code> ไม่ต้องแก้เลยแม้แต่บรรทัดเดียว',
+ warn:'⚠️ bridge ต้อง<b>บาง</b> — ถ้าเริ่มมี <code>if</code>/<code>for</code> แปลว่ามีกฎธุรกิจหลุดออกมาจาก domain'}),
+
+S(L_DATA,{title:'10 · 💾 ถึงฐานข้อมูลอีกครั้ง — pgstore.Products', loc:'internal/pgstore/catalog_repo.go:31',
+ body:'<p><code>catalog.Service.Get()</code> เรียก <code>catalog.Repository.FindByID()</code> → ปลายทางคือถังเดียวกับตะกร้า แต่คนละ collection</p>',
+ code:'<span class="c">// catalog/service.go:50 — service บางมาก แค่ส่งต่อ</span>\n<span class="k">func</span> (s *Service) <span class="f">Get</span>(ctx, id <span class="k">string</span>) (*Product, <span class="k">error</span>) {\n  <span class="k">return</span> s.repo.FindByID(ctx, id)\n}\n\n<span class="c">// memory/memory.go:33</span>\n<span class="k">return</span> &amp;p, <span class="k">nil</span>   <span class="c">// คืน copy — กัน caller แก้ state ในถัง</span>',
+ lesson:'📊 ถึงตรงนี้ request แตะฐานข้อมูลไปแล้ว <b>2 ครั้ง</b> (ตะกร้า 1 · สินค้า 1)<br>🔭 <b>ทั้ง 2 ครั้งโผล่เป็น span ลูกใน trace อัตโนมัติ</b> — เพราะ <code>otelpgx</code> เสียบอยู่ที่ pool ไม่ต้องเขียน span เอง'}),
+
+S(L_PORT,{title:'11 · bridge แปลงร่าง Product → ProductInfo', loc:'internal/bridge/bridge.go:41',
+ body:'<p><code>catalog.Product</code> มี 7 field แต่ <code>cart</code> ขอแค่ 4 → <b>bridge ยัดให้แค่ที่ขอ</b></p>',
+ code:'<span class="k">return</span> cart.ProductInfo{\n  ID:       p.ID,\n  Name:     p.Name,\n  Price:    p.Price,\n  <span class="hl">Sellable: p.CanSell(1)</span>,   <span class="c">// ← แปลกฎของ catalog เป็นคำที่ cart เข้าใจ</span>\n}, <span class="k">nil</span>',
+ lesson:'🔑 <b><code>cart</code> ไม่มีทางรู้เรื่อง <code>Stock</code>, <code>Reserved</code>, <code>Active</code> เลย</b> — มันรู้แค่ <code>Sellable</code> true/false<br>= การซ่อนรายละเอียดที่แท้จริง ไม่ใช่แค่ซ่อนชื่อ field'}),
+
+S(L_ENT,{title:'12 · 💎 entity ตัดสินใจ — c.Add(info, qty)', loc:'internal/cart/cart.go:73',
+ body:'<p><b>นี่คือจุดที่ "กฎธุรกิจ" ทำงานจริง</b> — ไม่ใช่ที่ handler ไม่ใช่ที่ service</p>',
+ code:'<span class="k">func</span> (c *Cart) <span class="f">Add</span>(p ProductInfo, qty <span class="k">int</span>) <span class="k">error</span> {\n  <span class="k">if</span> qty &lt;= 0            { <span class="k">return</span> ErrInvalidQty }\n  <span class="k">if</span> !p.Sellable        { <span class="k">return</span> fmt.Errorf(<span class="s">"%w: %s"</span>, ErrNotSellable, p.Name) }\n  <span class="k">if</span> i := c.indexOf(p.ID); i &gt;= 0 {\n    <span class="hl">c.Lines[i].Qty += qty</span>          <span class="c">// มีอยู่แล้ว → บวกเพิ่ม</span>\n    c.Lines[i].UnitPrice = p.Price   <span class="c">// ยึดราคาล่าสุด</span>\n    <span class="k">return</span> <span class="k">nil</span>\n  }\n  <span class="k">if</span> <span class="k">len</span>(c.Lines) &gt;= <span class="hl">MaxLines</span> { <span class="k">return</span> ErrTooManyLines }  <span class="c">// สูงสุด 50</span>\n  c.Lines = <span class="k">append</span>(c.Lines, Line{...})\n}',
+ lesson:'💎 <b>กฎ 4 ข้ออยู่ในเมธอดเดียว อ่านจบใน 10 บรรทัด</b> — จำนวนต้องเป็นบวก · ต้องขายได้ · ซ้ำให้บวก · ไม่เกิน 50 รายการ<br>อยากรู้ว่า "ตะกร้าทำงานยังไง"? อ่านไฟล์นี้ไฟล์เดียว'}),
+
+S(L_DATA,{title:'13 · 💾 บันทึกกลับ — ใน transaction เดียว', loc:'internal/pgstore/cart_repo.go:60',
+ body:'<p><code>Save</code> เขียน 2 ตาราง — ต้องสำเร็จพร้อมกัน ไม่งั้นตะกร้าจะเหลือรายการเก่าปนใหม่</p>'+
+      '<p>จึงห่อด้วย <code>withinTx</code> ในตัวเอง: <b>upsert หัวตะกร้า → ลบรายการเก่าทิ้ง → ใส่รายการใหม่ทั้งชุด</b></p>',
+ code:'<span class="k">func</span> (r *Carts) <span class="f">Save</span>(ctx context.Context, c *cart.Cart) <span class="k">error</span> {\n  <span class="k">return</span> <span class="hl">r.s.withinTx(ctx, <span class="k">func</span>(ctx context.Context) <span class="k">error</span> {</span>\n    q := r.s.q(ctx)\n    q.UpsertCart(ctx, ...)        <span class="c">// หัวตะกร้า</span>\n    q.DeleteCartLines(ctx, c.ID)  <span class="c">// ล้างรายการเก่า</span>\n    <span class="k">for</span> i, l := <span class="k">range</span> c.Lines {\n      q.InsertCartLine(ctx, ...)  <span class="c">// ใส่ใหม่ทั้งชุด</span>\n    }\n  <span class="hl">})</span>\n}',
+ lesson:'🔁 <b><code>withinTx</code> เข้าร่วม transaction เดิมถ้ามีอยู่แล้ว</b> — ตอน <code>checkout</code> เรียก <code>Save</code> จากใน <code>tx.Do</code> ของตัวเอง จะไม่เปิด transaction ซ้อน',
+ warn:'⚠️ <b>หนี้ที่ยังเหลือ</b>: ยังเป็น อ่าน-แก้-เขียน ที่ระดับแอป · 2 request แก้ตะกร้าใบเดียวกันพร้อมกันยังทับกันได้ — ต้องมี optimistic locking (คนละเรื่องกับ oversell ที่แก้ไปแล้ว)'}),
+
+S(L_HTTP,{title:'14 · 🔙 กลับขึ้นมา encode เป็น JSON', loc:'internal/httpapi/httpapi.go:411',
+ body:'<p>handler แปลง <code>*cart.Cart</code> เป็น view สำหรับ client — <b>ไม่ยัด entity ดิบๆ ออกไปตรงๆ</b></p>',
+ code:'writeJSON(w, http.StatusOK, <span class="hl">toCartView(c)</span>)\n\n<span class="c">// ผลลัพธ์ — money.Satang มี MarshalJSON ของตัวเอง</span>\n{ <span class="s">"id"</span>: <span class="s">"crt_a1"</span>, <span class="s">"item_count"</span>: 3,\n  <span class="s">"lines"</span>: [{ <span class="s">"product_id"</span>: <span class="s">"prd_x9"</span>, <span class="s">"qty"</span>: 3,\n    <span class="s">"unit_price"</span>: <span class="hl">{<span class="s">"satang"</span>: 12000, <span class="s">"text"</span>: <span class="s">"฿120.00"</span>}</span> }],\n  <span class="s">"total"</span>: {<span class="s">"satang"</span>: 36000, <span class="s">"text"</span>: <span class="s">"฿360.00"</span>} }',
+ lesson:'💡 มี view struct คั่นไว้ = <b>เปลี่ยนโครง entity ได้โดยไม่พัง client</b> · และ client ได้ทั้งเลขไว้คำนวณและข้อความไว้แสดง'}),
+
+S(L_HTTP,{title:'15 · 🔙 ผ่าน middleware ขากลับ แล้วจบ', loc:'internal/httpapi/support.go:175',
+ body:'<p>response ย้อนออกทางเดิม — <code>requestLog</code> อ่าน status จาก <code>c.Writer.Status()</code> ที่ gin มีให้ แล้วเลือกระดับ log ตามผล</p>'+
+      '<p>🔭 พร้อมกันนั้น <code>otelgin</code> ปิด span ตัวแม่ → trace ทั้งต้นถูกส่งออก</p>',
+ code:'<span class="c">// 5xx = Error · 4xx = Warn · อื่นๆ = Info</span>\nlevel := slog.LevelInfo\n<span class="k">switch</span> {\n<span class="k">case</span> rec.status &gt;= 500: level = slog.LevelError\n<span class="k">case</span> rec.status &gt;= 400: level = slog.LevelWarn\n}\nlog.Log(ctx, level, <span class="s">"http"</span>, <span class="s">"method"</span>, ..., <span class="hl"><span class="s">"request_id"</span>, rid</span>, <span class="s">"ms"</span>, ...)',
+ lesson:'✅ <b>สรุปเส้นทางนี้</b>: HTTP → 🔐 ตรวจสิทธิ์ → Service → <b>2 port</b> → <b>1 bridge</b> → <b>2 domain</b> → <b>2 ครั้งที่แตะฐานข้อมูล</b> → entity ตัดสิน → บันทึกใน transaction → JSON กลับ<br>💎 โดยที่ <code>internal/cart</code> <b>ไม่รู้จัก HTTP · ไม่รู้จัก gin · ไม่รู้จัก catalog · ไม่รู้จัก PostgreSQL</b> เลยสักตัว<br>🔭 และได้ trace ครบทั้งเส้นโดย<b>ไม่มีใครเขียน span เอง</b>'}),
+]},
+
+{
+tab:'💳 จ่ายเงิน (ลึกสุด + transaction) — POST /carts/{id}/checkout 🔐',
+steps:[
+S(L_HTTP,{title:'1 · request เข้ามา + decode', loc:'internal/httpapi/httpapi.go:440',
+ body:'<p>เส้นทางนี้พาดผ่าน <b>5 domain</b> และแตะที่เก็บข้อมูล <b>7 ครั้ง</b> — เป็นเส้นทางที่ลึกที่สุดในระบบ</p>',
+ code:'curl -X POST localhost:8080/carts/crt_a1/checkout \\\n  -d <span class="s">\'{"expected_satang":36000,"pay_now":true}\'</span>\n\n<span class="c">// handler</span>\nreceipt, err := <span class="hl">a.svc.Checkout.Submit</span>(r.Context(),\n    r.PathValue(<span class="s">"id"</span>), money.FromSatang(body.ExpectedSatang), body.PayNow)',
+ lesson:'💡 <code>expected_satang</code> คือยอดที่<b>ลูกค้าเห็นบนจอ</b> — ส่งมาให้เทียบกันกันเคสราคาขยับระหว่างที่กำลังกดจ่าย'}),
+
+S(L_UC,{title:'2 · checkout.Service.Submit — process domain', loc:'internal/checkout/checkout.go:82',
+ body:'<p><b>"checkout" เป็นคำที่ลูกค้าพูดจริง</b> จึงสมควรเป็น domain ของตัวเอง ไม่ใช่โค้ดที่ยัดใน handler</p>'+
+      '<p>ทั้ง service มี dependency แค่ 2 ตัว และ<b>ไม่มีตัวไหนพูดถึง cart หรือ order เลย</b></p>',
+ code:'<span class="k">type</span> Service <span class="k">struct</span> {\n  baskets Baskets   <span class="c">// อ่าน/ล้างตะกร้า</span>\n  orders  Orders    <span class="c">// เปิดออเดอร์/จ่ายเงิน</span>\n}',
+ lesson:'🔑 <b>ถ้าไม่มี package นี้ <code>cart</code> จะต้อง import <code>order</code></b> → สองก้อนติดกันถาวร แยกทีมไม่ได้อีก'}),
+
+S(L_PORT,{title:'3 · อ่านตะกร้าผ่าน port checkout.Baskets', loc:'internal/bridge/bridge.go:110',
+ body:'<p>bridge แปลง <code>cart.Cart</code> → <code>checkout.Basket</code> — คนละ type แม้จะหน้าตาคล้ายกัน</p>',
+ code:'<span class="k">func</span> (b CheckoutBaskets) <span class="f">Read</span>(ctx, cartID <span class="k">string</span>) (checkout.Basket, <span class="k">error</span>) {\n  c, err := <span class="hl">b.Carts.Get(ctx, cartID)</span>\n  ...\n  <span class="k">return</span> checkout.Basket{CartID: c.ID, CustomerID: c.CustomerID, Lines: lines}, <span class="k">nil</span>\n}',
+ lesson:'💡 <b>ทำไมไม่ใช้ type เดียวกันไปเลย?</b> เพราะวันที่ <code>cart</code> เพิ่ม field ใหม่ (เช่นคูปอง) <code>checkout</code> จะไม่ถูกลากไปแก้ด้วย'}),
+
+S(L_DATA,{title:'4 · 💾 แตะฐานข้อมูลครั้งที่ 1 — ตะกร้า', loc:'internal/pgstore/cart_repo.go:19',
+ body:'<p><code>cart.Service.Get</code> → <code>cart.Repository.FindByID</code> → <code>pgstore.Carts</code></p>',
+ code:'<span class="c">// ได้กลับมา</span>\nBasket{ CartID: <span class="s">"crt_a1"</span>, CustomerID: <span class="s">"cus_77"</span>,\n        Lines: [{prd_x9, <span class="s">"เสื้อยืด"</span>, ฿120.00, 3}] }',
+ lesson:'📊 ครั้งที่ 1/7'}),
+
+S(L_ENT,{title:'5 · 💎 ด่านตรวจของ checkout', loc:'internal/checkout/checkout.go:87',
+ body:'<p>กฎ 2 ข้อก่อนไปต่อ — ทั้งคู่เป็นกฎธุรกิจของ checkout เอง</p>',
+ code:'<span class="k">if</span> <span class="k">len</span>(basket.Lines) == 0 {\n  <span class="k">return</span> <span class="k">nil</span>, fmt.Errorf(<span class="s">"%w: %s"</span>, ErrEmptyCart, cartID)\n}\n<span class="k">if</span> expected &gt; 0 &amp;&amp; <span class="hl">basket.Total() != expected</span> {\n  <span class="k">return</span> <span class="k">nil</span>, fmt.Errorf(<span class="s">"%w: ตะกร้า %s แต่ลูกค้าเห็น %s"</span>,\n                     ErrMismatch, basket.Total(), expected)\n}',
+ lesson:'🛡️ <code>ErrMismatch</code> → adapter แปลเป็น <b>409 Conflict</b> · ลูกค้าเห็นราคาเก่า ต้องให้รีเฟรชก่อนจ่าย'}),
+
+S(L_PORT,{title:'6 · เปิดออเดอร์ผ่าน port checkout.Orders', loc:'internal/bridge/bridge.go:137',
+ body:'<p><code>checkout</code> รู้แค่ว่า "มีใครสักคนเปิดออเดอร์ให้ได้" ไม่รู้ว่าปลายทางคือ <code>order.Service</code></p>',
+ code:'<span class="k">type</span> <span class="f">Orders</span> <span class="k">interface</span> {\n  Place(ctx, customerID <span class="k">string</span>, lines []Line) (orderID <span class="k">string</span>, total money.Satang, err <span class="k">error</span>)\n  Pay(ctx, orderID <span class="k">string</span>) <span class="k">error</span>\n}\n\n<span class="c">// bridge.CheckoutOrders แปลง checkout.Line → order.Line แล้วส่งต่อ</span>',
+ lesson:'🌉 <b>bridge ตัวที่ 2 ของเส้นทางนี้</b>'}),
+
+S(L_UC,{title:'7 · ⭐ order.Service.Place — ทั้งก้อนอยู่ใน transaction เดียว', loc:'internal/order/service.go:47',
+ body:'<p>🆕 <b>ทุกขั้นย่อยถูกห่อด้วย <code>s.tx.Do</code></b> — สำเร็จทั้งหมด หรือไม่เกิดอะไรขึ้นเลย</p>'+
+      '<p>บน PostgreSQL นี่คือ <code>BEGIN</code> จริง · บน <code>memory</code> เป็น no-op แล้วให้ทางถอยแบบเดิมทำงานแทน</p>',
+ code:'<span class="k">func</span> (s *Service) <span class="f">Place</span>(ctx, customerID, lines) (*Order, <span class="k">error</span>) {\n  err := <span class="hl">s.tx.Do(ctx, <span class="k">func</span>(ctx context.Context) <span class="k">error</span> {</span>\n    <span class="hl">s.shoppers.EnsureCanOrder</span>(ctx, customerID)  <span class="c">// ① ลูกค้าสั่งได้ไหม</span>\n    <span class="k">for</span> _, l := <span class="k">range</span> lines {\n      <span class="hl">s.stock.Reserve</span>(ctx, l.ProductID, l.Qty)   <span class="c">// ② จองของ</span>\n    }\n    o, _ := New(s.ids.NewID(), customerID, lines, <span class="hl">s.clock.Now()</span>) <span class="c">// ③</span>\n    <span class="hl">s.repo.Save</span>(ctx, o)                          <span class="c">// ④ บันทึก</span>\n    <span class="hl">s.shoppers.OrderOpened</span>(ctx, customerID)     <span class="c">// ⑤ นับออเดอร์ค้าง</span>\n    <span class="k">return</span> <span class="k">nil</span>\n  <span class="hl">})</span>\n}',
+ lesson:'🔑 <b><code>order</code> ใช้ port ถึง 7 ตัว</b> (<code>Stock · Shoppers · Wallet · Clock · IDGenerator · Repository · TxManager</code>) แต่ <b>ไม่ import domain อื่นเลยสักตัว</b><br>💎 <b><code>TxManager</code> คือ port เดียวที่เพิ่มมาใน branch นี้</b> — และ signature ของมันไม่เอ่ยคำว่า SQL เลย'}),
+
+S(L_ENT,{title:'8 · 💎 กฎของลูกค้า — MaxOpenOrders = 5', loc:'internal/customer/customer.go:59',
+ body:'<p>ผ่าน port <code>order.Shoppers</code> → <code>bridge.OrderShoppers</code> → <code>customer.Service</code> → 💾 แตะถังครั้งที่ 2 → entity ตัดสิน</p>',
+ code:'<span class="k">func</span> (c *Customer) <span class="f">CanOrder</span>() <span class="k">error</span> {\n  <span class="k">if</span> c.Suspended { <span class="k">return</span> ErrSuspended }\n  <span class="k">if</span> c.OpenOrders &gt;= <span class="hl">MaxOpenOrders</span> {\n    <span class="k">return</span> fmt.Errorf(<span class="s">"%w: มีออเดอร์ค้าง %d รายการ (สูงสุด %d)"</span>, ...)\n  }\n  <span class="k">return</span> <span class="k">nil</span>\n}',
+ lesson:'💎 <b><code>const MaxOpenOrders = 5</code> อยู่ในไฟล์ที่ชื่อ <code>customer.go</code></b><br>ถามว่า "ลูกค้าสั่งได้กี่ออเดอร์" → ไปดูที่ <code>customer</code> · ไม่ต้องไล่หาทั้งโปรเจกต์'}),
+
+S(L_ENT,{title:'9 · 💎 จองสต็อกทีละรายการ + ทางถอย', loc:'internal/order/service.go:34',
+ body:'<p>ผ่าน port <code>order.Stock</code> → <code>bridge.OrderStock</code> → <code>catalog.Service.Reserve</code> → <code>Product.Reserve(qty)</code></p>',
+ code:'<span class="c">// order/service.go — วนจอง</span>\n<span class="k">for</span> _, l := <span class="k">range</span> lines {\n  <span class="k">if</span> err := s.stock.Reserve(ctx, l.ProductID, l.Qty); err != <span class="k">nil</span> {\n    <span class="hl">s.releaseAll(ctx, reserved)</span>   <span class="c">// ⚠️ คืนของที่จองไปแล้ว</span>\n    <span class="k">return</span> <span class="k">nil</span>, err\n  }\n  reserved = <span class="k">append</span>(reserved, l)\n}\n\n<span class="c">// catalog/product.go — กฎอยู่ที่ entity</span>\n<span class="k">if</span> p.Available() &lt; qty { <span class="k">return</span> ErrOutOfStock }\np.Reserved += qty   <span class="c">// จอง ≠ ตัดสต็อก</span>',
+ lesson:'💡 <b>แยก "จอง" กับ "ตัดจริง"</b> — ตอนสั่งแค่ <code>Reserved += qty</code> · ตัดจริง (<code>Fulfil</code>) ตอน<b>ส่งของ</b> · ยกเลิกก่อนส่งก็ <code>Release</code> คืนได้<br><br>✅ <b>หนี้ก้อนนี้ปิดแล้ว</b> — บน PostgreSQL การจองสต็อกอยู่ใน transaction เดียวกับการบันทึกออเดอร์ · โปรเซสตายกลางทาง = <code>ROLLBACK</code> คืนทุกอย่างให้เอง<br>🔒 และตัว <code>Reserve</code> เองก็เป็น <code>UPDATE</code> เดียวที่ atomic — ยิงพร้อมกัน 100 ครั้งบนสต็อก 10 ก็ยังจองได้ 10 พอดี'}),
+
+S(L_DATA,{title:'10 · 💾 แตะฐานข้อมูลครั้งที่ 3–5 — บันทึกสต็อก + ออเดอร์', loc:'internal/pgstore/',
+ body:'<p>③ บันทึกสินค้าที่จองแล้ว (ทุกรายการ) · ④ <code>order.New()</code> ขอเวลาจาก <b>adapter <code>clock</code></b> แล้วบันทึกออเดอร์ · ⑤ อัปเดตตัวนับของลูกค้า</p>',
+ code:'<span class="c">// order/order.go:92 — สถานะเริ่มต้นเสมอคือ PLACED</span>\no := &amp;Order{ID: id, CustomerID: customerID, Lines: lines,\n            <span class="hl">Status: Placed</span>, PlacedAt: now}\n\n<span class="c">// เวลามาจาก port ไม่ใช่ time.Now() ตรงๆ</span>\n<span class="k">type</span> <span class="f">Clock</span> <span class="k">interface</span> { Now() time.Time }',
+ lesson:'🔑 <b>ทำไม <code>Clock</code> ต้องเป็น port</b> — ถ้าเรียก <code>time.Now()</code> ในโค้ด domain เทสจะเขียนไม่ได้<br>มี port แล้วเทสยัด <code>clock.Fixed{At: ...}</code> เข้าไป → ผลลัพธ์เดิมทุกครั้ง'}),
+
+S(L_PORT,{title:'11 · payNow=true → เก็บเงินผ่าน port order.Wallet', loc:'internal/bridge/bridge.go:92',
+ body:'<p><code>checkout.Orders.Pay</code> → <code>order.Service.Pay</code> → port <code>order.Wallet</code> → <code>bridge.OrderWallet</code> → <code>payment.Service</code></p>',
+ code:'<span class="k">type</span> <span class="f">Wallet</span> <span class="k">interface</span> {\n  Collect(ctx, orderID <span class="k">string</span>, amount money.Satang) (paymentID <span class="k">string</span>, err <span class="k">error</span>)\n  RefundOrder(ctx, orderID <span class="k">string</span>) <span class="k">error</span>\n}',
+ lesson:'🌉 <b>bridge ตัวที่ 4</b> · <code>order</code> ไม่รู้จัก <code>payment</code> · <code>payment</code> ไม่รู้จัก <code>order</code> — ทั้งคู่รู้จักแค่ port ของตัวเอง'}),
+
+S(L_DATA,{title:'12 · 💾 แตะถังครั้งที่ 6 + ออกไปหาโลกภายนอก', loc:'internal/fakepay/fakepay.go:32',
+ body:'<p><code>payment.Service.Collect</code> สร้าง <code>Payment</code> สถานะ <code>PENDING</code> → บันทึก → เรียก <b>gateway จริง</b> → บันทึกผล</p>',
+ code:'<span class="c">// port ที่ payment ประกาศ</span>\n<span class="k">type</span> <span class="f">Gateway</span> <span class="k">interface</span> {\n  Charge(ctx, paymentID <span class="k">string</span>, amount money.Satang) (Charge, <span class="k">error</span>)\n}\n\n<span class="c">// fakepay — ตัวปลอมสำหรับ dev/test</span>\n<span class="k">if</span> strings.HasSuffix(amount.String(), <span class="s">".13"</span>) {\n  <span class="k">return</span> Charge{}, payment.ErrDeclined   <span class="c">// จำลองบัตรถูกปฏิเสธ</span>\n}',
+ lesson:'✅ <b>บันทึกทุกครั้งที่พยายามจ่าย ไม่ว่าสำเร็จหรือไม่</b> → มีร่องรอยให้ตรวจย้อนหลังได้<br>วันเปลี่ยนเป็น Stripe = เขียน <code>internal/stripe</code> แล้วสลับใน <code>main.go</code> บรรทัดเดียว'}),
+
+S(L_ENT,{title:'13 · 💎 state machine เลื่อนสถานะ PLACED → PAID', loc:'internal/order/order.go:136',
+ body:'<p>ทุกการเปลี่ยนสถานะผ่าน<b>ประตูเดียว</b> ที่เช็คกับตารางเดียว</p>',
+ code:'<span class="k">var</span> transitions = <span class="k">map</span>[Status][]Status{\n  <span class="hl">Placed:    {Paid, Cancelled}</span>,\n  Paid:      {Preparing, Cancelled},\n  Preparing: {Shipped, Cancelled},\n  Shipped:   {Delivered},\n}\n\n<span class="k">func</span> (o *Order) <span class="f">to</span>(next Status, now time.Time) <span class="k">error</span> {\n  <span class="k">if</span> !o.Status.CanTransitionTo(next) {\n    <span class="k">return</span> fmt.Errorf(<span class="s">"%w: %s → %s"</span>, ErrBadTransition, o.Status, next)\n  }\n  o.Status = next; o.UpdatedAt = now\n}',
+ lesson:'💎 <b>state machine เป็น "ข้อมูล" ไม่ใช่ <code>if</code> ซ้อน</b> — เพิ่มสถานะใหม่ = แก้ตารางที่เดียว<br>ลองยิง <code>/orders/{id}/ship</code> ตอนที่ยังเป็น <code>PAID</code> → ได้ <b>409</b> พร้อมข้อความ <code>PAID → SHIPPED</code>'}),
+
+S(L_PORT,{title:'14 · 💾 แตะถังครั้งที่ 7 — ล้างตะกร้า (ขั้นสุดท้ายเสมอ)', loc:'internal/checkout/checkout.go:110',
+ body:'<p><b>ลำดับตรงนี้ไม่ใช่เรื่องบังเอิญ</b> — เป็นการตัดสินใจเชิงธุรกิจที่เขียนคอมเมนต์กำกับไว้ในโค้ด</p>',
+ code:'<span class="k">if</span> payNow {\n  <span class="k">if</span> err := s.orders.Pay(ctx, orderID); err != <span class="k">nil</span> {\n    <span class="c">// ออเดอร์เปิดแล้วแต่จ่ายไม่ผ่าน → คืน receipt ให้ไปจ่ายซ้ำได้</span>\n    <span class="k">return</span> receipt, fmt.Errorf(<span class="s">"...payment failed: %w"</span>, err)\n  }\n}\n<span class="c">// ล้างตะกร้าเป็นขั้นสุดท้ายเสมอ —</span>\n<span class="c">// ถ้าล้มก่อนหน้านี้ ตะกร้าลูกค้าต้องยังอยู่</span>\n<span class="hl">s.baskets.Empty(ctx, cartID)</span>',
+ lesson:'💎 <b>นี่คือกฎธุรกิจที่เขียนออกมาเป็น "ลำดับ"</b> — ถ้าล้างตะกร้าก่อนจ่ายเงิน แล้วบัตรถูกปฏิเสธ ลูกค้าจะเสียของในตะกร้าไปฟรีๆ'}),
+
+S(L_HTTP,{title:'15 · 🔙 response 201 (หรือ 202 ถ้าจ่ายไม่ผ่าน)', loc:'internal/httpapi/httpapi.go:448',
+ body:'<p>เคสพิเศษ: <b>ออเดอร์สร้างแล้วแต่จ่ายไม่ผ่าน</b> — ไม่ใช่ error ล้วนๆ เพราะออเดอร์มีจริง</p>',
+ code:'<span class="k">if</span> err != <span class="k">nil</span> {\n  <span class="k">if</span> <span class="hl">receipt != <span class="k">nil</span></span> {   <span class="c">// ออเดอร์เกิดแล้ว แต่จ่ายพลาด</span>\n    writeJSON(w, <span class="hl">http.StatusAccepted</span>, map[<span class="k">string</span>]<span class="k">any</span>{\n      <span class="s">"order_id"</span>: receipt.OrderID, <span class="s">"paid"</span>: <span class="k">false</span>,\n      <span class="s">"warning"</span>:  err.Error(),   <span class="c">// ไปจ่ายซ้ำที่ /orders/{id}/pay ได้</span>\n    })\n    <span class="k">return</span>\n  }\n  a.fail(w, err)\n}\nwriteJSON(w, <span class="hl">http.StatusCreated</span>, ...)   <span class="c">// 201 ปกติ</span>',
+ lesson:'✅ <b>สรุปเส้นทางนี้</b>: 6 domain (<code>checkout · cart · order · customer · catalog · payment</code>) · <b>4 bridge</b> · <b>7 ครั้งที่แตะฐานข้อมูล</b> — <b>ทั้งหมดอยู่ใน transaction เดียว</b><br>💎 ไม่มี domain ไหนรู้จัก gin, pgx หรือ SQL เลยสักตัว<br>🔭 trace ที่ได้จะเห็นครบทั้งเส้น: span ตัวแม่ของ HTTP → span ย่อยของทุก query'}),
+]},
+];
+
+/* ══════════ file map ══════════ */
+(function(){
+  const tree = document.getElementById('ftree'), det = document.getElementById('fdet');
+  if(!tree) return;
+  const cls = {domain:'dm', adapter:'ad', composition:'cp', config:'', test:''};
+  const groups = [];
+  FILES.forEach(f => {
+    let g = groups.find(x => x.name === f.group);
+    if(!g){ g = {name:f.group, items:[]}; groups.push(g); }
+    g.items.push(f);
+  });
+  let html = '';
+  groups.forEach(g => {
+    html += '<div class="grp">' + g.name + '</div>';
+    g.items.forEach(f => {
+      html += '<div class="f ' + (cls[f.layer]||'') + '" data-id="' + f.path + '">' +
+              '<span>' + f.short + '</span><span class="ln">' + f.lines + '</span></div>';
+    });
+  });
+  tree.innerHTML = html;
+
+  const LBL = {domain:'💎 domain', adapter:'🔌 adapter', composition:'🔧 composition', config:'⚙️ config', test:'🧪 test'};
+  const LCLS = {domain:'domain', adapter:'adapter', composition:'comp', config:'comp', test:'port'};
+  function show(f){
+    tree.querySelectorAll('.f').forEach(e => e.classList.toggle('on', e.dataset.id === f.path));
+    det.innerHTML =
+      '<div class="ph">' + f.path + '</div>' +
+      '<div class="meta"><span class="lb ' + LCLS[f.layer] + '">' + LBL[f.layer] + '</span>' +
+      '<span style="font-size:.78rem;color:#64748b">' + f.lines + ' บรรทัด</span></div>' +
+      '<div class="role">' + f.role + '</div>' +
+      f.body +
+      (f.imports ? '<div class="imp"><b>import:</b> ' + f.imports + '</div>' : '') +
+      (f.why ? '<div class="why">' + f.why + '</div>' : '');
+  }
+  tree.addEventListener('click', e => {
+    const el = e.target.closest('.f'); if(!el) return;
+    show(FILES.find(f => f.path === el.dataset.id));
+  });
+  if(FILES.length) show(FILES[0]);
+})();
+
+/* ══════════ flow viewer ══════════ */
+(function(){
+  const tabs = document.getElementById('ftabs'), stepsEl = document.getElementById('fsteps'),
+        detEl = document.getElementById('fdetail'), posEl = document.getElementById('fpos'),
+        lanes = document.querySelectorAll('#lanes .lane');
+  if(!tabs || !FLOWS.length) return;
+  let fi = 0, si = 0;
+
+  tabs.innerHTML = FLOWS.map((f,i) => '<button class="ftab' + (i?'':' on') + '" data-i="' + i + '">' + f.tab + '</button>').join('');
+
+  function render(){
+    const flow = FLOWS[fi], st = flow.steps[si];
+    tabs.querySelectorAll('.ftab').forEach((b,i) => b.classList.toggle('on', i === fi));
+    stepsEl.innerHTML = flow.steps.map((s,i) =>
+      '<div class="fstep' + (i===si?' on':(i<si?' done':'')) + '" data-i="' + i + '">' +
+      '<span class="n">' + (i+1) + '</span><span class="tx"><b>' + s.title + '</b>' +
+      (s.loc ? '<small>' + s.loc + '</small>' : '') + '</span></div>').join('');
+    lanes.forEach((l,i) => l.classList.toggle('on', st.lane === i+1));
+    posEl.textContent = 'ขั้น ' + (si+1) + '/' + flow.steps.length;
+    detEl.innerHTML =
+      '<div class="hd"><span class="lb ' + (st.badge || 'adapter') + '">' + st.layer + '</span>' +
+      (st.loc ? '<span class="loc">' + st.loc + '</span>' : '') + '</div>' +
+      '<h4>' + st.title + '</h4>' + st.body +
+      (st.code ? '<pre>' + st.code + '</pre>' : '') +
+      (st.lesson ? '<div class="lesson">' + st.lesson + '</div>' : '') +
+      (st.warn ? '<div class="warnx">' + st.warn + '</div>' : '');
+    const cur = stepsEl.querySelector('.fstep.on');
+    if(cur) cur.scrollIntoView({block:'nearest'});
+  }
+  const go = d => { si = Math.max(0, Math.min(FLOWS[fi].steps.length-1, si+d)); render(); };
+  document.getElementById('fnext').onclick = () => go(1);
+  document.getElementById('fprev').onclick = () => go(-1);
+  document.getElementById('freset').onclick = () => { si = 0; render(); };
+  tabs.addEventListener('click', e => {
+    const b = e.target.closest('.ftab'); if(!b) return;
+    fi = +b.dataset.i; si = 0; render();
+  });
+  stepsEl.addEventListener('click', e => {
+    const s = e.target.closest('.fstep'); if(!s) return;
+    si = +s.dataset.i; render();
+  });
+  document.addEventListener('keydown', e => {
+    if(e.target.tagName === 'INPUT') return;
+    if(e.key === 'ArrowRight'){ go(1); } else if(e.key === 'ArrowLeft'){ go(-1); }
+  });
+  render();
+})();
+
+/* ══════════ nav ══════════ */
+(function(){
+  const nav = document.getElementById('nav'), btn = document.getElementById('menuToggle'),
+        main = document.querySelector('main');
+  btn.onclick = () => {
+    const hidden = nav.classList.toggle('hide');
+    nav.classList.toggle('show', !hidden);
+    main.classList.toggle('wide', hidden);
+    btn.classList.toggle('shifted', hidden);
+    btn.textContent = hidden ? '☰' : '✕';
+  };
+  const links = [...nav.querySelectorAll('a')];
+  const secs = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function spy(){
+    let cur = secs[0];
+    for(const s of secs) if(s.getBoundingClientRect().top <= 110) cur = s;
+    links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + cur.id));
+  }
+  document.addEventListener('scroll', spy, {passive:true}); spy();
+})();
+</script>
+</body>
+</html>
